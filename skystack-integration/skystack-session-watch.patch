@@ -1,0 +1,655 @@
+diff --git a/config.yaml b/config.yaml
+index 0fe1803..98b97fc 100644
+--- a/config.yaml
++++ b/config.yaml
+@@ -113,6 +113,14 @@ remote_access:              # the dashboard for collaborators over Tailscale (py
+   dashboard_port: 8501
+   triage_port: 8502
+ 
++session_watch:              # SkyShare: start the pipeline when NINA finishes a client's night (skystack/session_watch.py)
++  enabled: false
++  plans_dir: 'D:\Dropbox\SkyShare Data\Plans'   # where the bot writes *.plan.json and NINA writes *.session.json
++  settle_minutes: 10        # wait until no new LIGHT/FLAT files for this long (Dropbox still syncing)
++  max_wait_hours: 12        # frames still missing after this: run with what arrived, and say so
++  needs_approval: false     # true: jobs wait for Approve in the dashboard
++  overdue_hour: 14          # next-day hour after which a plan with no manifest is reported
++
+ measurement:               # PixInsight SubframeSelector metrics, measured on calibrated frames before triage
+   subframe_scale: 1.0       # arcsec/px; 1.0 reports FWHM in pixels
+   camera_gain: 1.0          # e-/ADU
+diff --git a/skystack/session_watch.py b/skystack/session_watch.py
+new file mode 100644
+index 0000000..c01ecbe
+--- /dev/null
++++ b/skystack/session_watch.py
+@@ -0,0 +1,365 @@
++"""Start the pipeline automatically when a SkyShare night has finished.
++
++The NINA plugin (SkyShare Planner) ends every night by writing a session
++manifest next to the night's plan in Dropbox:
++
++    <plans_dir>/2026-11-07_JaneDoe.plan.json        what the client reserved
++    <plans_dir>/2026-11-07_JaneDoe.session.json     what was captured + what to run
++
++skystack_server.py calls poll() every tick. For each new manifest it
++
++    1. waits until the frames it lists have arrived (Dropbox source or the local
++       LIGHT folder - auto_transfer may already have moved some), and until no
++       new LIGHT/FLAT files have appeared for `settle_minutes`, so flats synced
++       after the lights are included;
++    2. runs the actions as a chain of jobs through skystack.jobs - the same
++       queue the dashboard uses, so the one-job-at-a-time rule and owner
++       approval (`needs_approval`) apply. Each job is queued only after the
++       previous one succeeded (the first runs transfer + masters, later ones
++       skip them, so order matters); a failed job stops the chain;
++    3. posts what it did to Discord (SKYSTACK_DISCORD_WEBHOOK).
++
++If frames are still missing after `max_wait_hours`, it runs with what arrived
++and says so. A manifest with nothing captured is acknowledged without a job.
++A plan whose night ended (`overdue_hour` the next day) with no manifest is
++reported once - usually the sequence aborted before "Session Complete".
++
++State (which manifests were handled, job ids) lives in
++pipeline_jobs/skyshare/sessions.json, so restarts don't queue anything twice. If NINA
++rewrites a manifest (new completed_utc), it is handled again.
++
++    python -m skystack.session_watch            # one poll, print the state
++    python -m skystack.session_watch --dry-run  # what would be queued, change nothing
++"""
++from __future__ import annotations
++
++import argparse
++import json
++import logging
++from datetime import datetime, timedelta
++from pathlib import Path
++from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional
++
++from skystack import jobs
++
++logger = logging.getLogger(__name__)
++
++MANIFEST_SUFFIX = ".session.json"
++PLAN_SUFFIX = ".plan.json"
++SUPPORTED_SCHEMA = 1
++IMAGE_SUFFIXES = {".fits", ".fit", ".fts", ".xisf"}
++DEFAULTS = {
++    "enabled": False,
++    "plans_dir": None,
++    "settle_minutes": 10,
++    "max_wait_hours": 12,
++    "needs_approval": False,
++    "overdue_hour": 14,
++}
++
++Notifier = Callable[[str], None]
++
++
++# ---------------------------------------------------------------------------
++# Config, state
++# ---------------------------------------------------------------------------
++
++def settings(config: Mapping[str, Any]) -> Dict[str, Any]:
++    return {**DEFAULTS, **(config.get("session_watch") or {})}
++
++
++def _state_path(jobs_dir: Path) -> Path:
++    # in a subfolder: jobs.list_jobs() treats every *.json directly in jobs_dir as a job
++    return Path(jobs_dir) / "skyshare" / "sessions.json"
++
++
++def load_state(jobs_dir: Path) -> Dict[str, Any]:
++    p = _state_path(jobs_dir)
++    if p.exists():
++        try:
++            return json.loads(p.read_text(encoding="utf-8"))
++        except json.JSONDecodeError:
++            logger.error("Corrupt %s; starting fresh (old file kept as .bad)", p)
++            p.replace(p.with_suffix(".json.bad"))
++    return {"sessions": {}, "overdue_reported": []}
++
++
++def save_state(jobs_dir: Path, state: Dict[str, Any]) -> None:
++    p = _state_path(jobs_dir)
++    p.parent.mkdir(parents=True, exist_ok=True)
++    tmp = p.with_suffix(".tmp")
++    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
++    tmp.replace(p)
++
++
++# ---------------------------------------------------------------------------
++# Manifests
++# ---------------------------------------------------------------------------
++
++class ManifestError(ValueError):
++    pass
++
++
++def read_manifest(path: Path) -> Dict[str, Any]:
++    try:
++        m = json.loads(path.read_text(encoding="utf-8"))
++    except (OSError, json.JSONDecodeError) as e:
++        raise ManifestError(f"unreadable: {e}") from e
++    if m.get("kind") != "skyshare_session":
++        raise ManifestError("not a skyshare_session manifest")
++    if m.get("schema_version") != SUPPORTED_SCHEMA:
++        raise ManifestError(f"schema_version {m.get('schema_version')} not supported (want {SUPPORTED_SCHEMA})")
++    for key in ("night", "targets", "actions"):
++        if key not in m:
++            raise ManifestError(f"missing '{key}'")
++    return m
++
++
++def _count_images(dirs: Iterable[Path]) -> int:
++    n = 0
++    for d in dirs:
++        if d.exists():
++            n += sum(1 for f in d.rglob("*") if f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES)
++    return n
++
++
++def light_dirs(config: Mapping[str, Any], target: str, session: str) -> List[Path]:
++    """Where a target's session can be right now: still in Dropbox, or already transferred."""
++    dirs = [Path(config["light_base_dir"]) / target / session]
++    if config.get("dropbox_source"):
++        dirs.append(Path(config["dropbox_source"]) / "LIGHT" / target / session)
++    return dirs
++
++
++def flat_dirs(config: Mapping[str, Any]) -> List[Path]:
++    dirs = [Path(config["flat_base_dir"])] if config.get("flat_base_dir") else []
++    if config.get("dropbox_source"):
++        dirs.append(Path(config["dropbox_source"]) / "FLAT")
++    return dirs
++
++
++def arrival(config: Mapping[str, Any], manifest: Mapping[str, Any]) -> Dict[str, Any]:
++    """How many of the manifest's lights are here, plus a fingerprint of LIGHT+FLAT activity."""
++    per_target = {}
++    for t in manifest["targets"]:
++        if not t.get("ran"):
++            continue
++        have = _count_images(light_dirs(config, t["name"], t.get("session") or manifest["night"]))
++        per_target[t["name"]] = {"have": have, "want": int(t.get("lights_total", 0))}
++    flats = _count_images(flat_dirs(config))
++    complete = all(v["have"] >= v["want"] for v in per_target.values())
++    fingerprint = [sum(v["have"] for v in per_target.values()), flats]
++    return {"targets": per_target, "flat_files": flats, "complete": complete, "fingerprint": fingerprint}
++
++
++def action_argvs(manifest: Mapping[str, Any]) -> tuple[List[List[str]], List[str]]:
++    """Manifest actions -> run_routine.py argv lists (+ notes for anything skipped)."""
++    argvs, notes = [], []
++    for i, a in enumerate(manifest.get("actions", [])):
++        if a.get("type") != "skystack_run":
++            notes.append(f"action {i + 1}: unknown type {a.get('type')!r} skipped")
++            continue
++        first = not argvs
++        try:
++            argvs.append(jobs.pipeline_argv(
++                "run", a["target"], a.get("sessions") or [manifest["night"]],
++                skip_transfer=not first, skip_masters=not first,   # first job transfers + builds masters
++                triage_mode=a.get("triage"),
++                postprocess=a.get("postprocess"), export=a.get("export"),
++            ))
++        except (KeyError, ValueError) as e:
++            notes.append(f"action {i + 1}: invalid ({e}) skipped")
++    return argvs, notes
++
++
++# ---------------------------------------------------------------------------
++# Poll
++# ---------------------------------------------------------------------------
++
++def poll(
++    config: Mapping[str, Any],
++    jobs_dir: Path = jobs.DEFAULT_JOBS_DIR,
++    now: Optional[datetime] = None,
++    notify: Optional[Notifier] = None,
++    dry_run: bool = False,
++) -> List[Dict[str, Any]]:
++    """Handle new/waiting manifests once. Returns the sessions whose state changed."""
++    cfg = settings(config)
++    if not cfg["enabled"] or not cfg["plans_dir"]:
++        return []
++    plans_dir = Path(cfg["plans_dir"])
++    if not plans_dir.exists():
++        logger.warning("session_watch: plans_dir not found: %s", plans_dir)
++        return []
++
++    now = now or datetime.now()
++    notify = notify or default_notifier(config)
++    state = load_state(jobs_dir)
++    sessions = state.setdefault("sessions", {})
++    changed: List[Dict[str, Any]] = []
++
++    def update(name: str, entry: Dict[str, Any], message: Optional[str] = None) -> None:
++        sessions[name] = entry
++        changed.append({"manifest": name, **entry})
++        if message:
++            logger.info("session_watch: %s", message)
++            if not dry_run:
++                try:
++                    notify(message)
++                except Exception as e:  # never let Discord break the server loop
++                    logger.warning("session_watch: notify failed: %s", e)
++
++    for path in sorted(plans_dir.glob(f"*{MANIFEST_SUFFIX}")):
++        if path.name.startswith("."):
++            continue  # atomic-write temp file
++        entry = dict(sessions.get(path.name) or {})
++        try:
++            m = read_manifest(path)
++        except ManifestError as e:
++            if entry.get("status") != "error" or entry.get("error") != str(e):
++                update(path.name, {"status": "error", "error": str(e)}, f"⚠️ {path.name}: {e}")
++            continue
++
++        stamp = m.get("completed_utc")
++        if entry.get("completed_utc") != stamp:          # new, or NINA rewrote it
++            entry = {"status": "waiting", "completed_utc": stamp, "first_seen": now.isoformat(timespec="seconds")}
++        who = m.get("client") or "?"
++        label = f"{m['night']} {who}"
++
++        if entry["status"] == "processing":
++            if not dry_run:
++                _advance(path.name, entry, label, jobs_dir, cfg, update)
++            continue
++        if entry["status"] != "waiting":
++            continue
++
++        if m.get("outcome") == "nothing_captured" or not m.get("actions"):
++            why = "nothing captured" if m.get("outcome") == "nothing_captured" else "processing disabled in plan"
++            update(path.name, {**entry, "status": "done", "jobs": [], "note": why},
++                   f"🌙 {label}: {why} - no pipeline job.")
++            continue
++
++        arr = arrival(config, m)
++        if arr["fingerprint"] != entry.get("fingerprint"):
++            entry.update(fingerprint=arr["fingerprint"], last_change=now.isoformat(timespec="seconds"))
++        quiet = now - datetime.fromisoformat(entry["last_change"]) >= timedelta(minutes=cfg["settle_minutes"])
++        waited = now - datetime.fromisoformat(entry["first_seen"]) >= timedelta(hours=cfg["max_wait_hours"])
++        entry["arrival"] = arr["targets"]
++
++        # dry runs keep no state, so they can't see "quiet": report as if settled
++        if not ((quiet or dry_run) and (arr["complete"] or waited)):
++            sessions[path.name] = entry  # still waiting; remember progress
++            continue
++
++        argvs, notes = action_argvs(m)
++        missing = [f"{n}: {v['have']}/{v['want']}" for n, v in arr["targets"].items() if v["have"] < v["want"]]
++        if dry_run:
++            changed.append({"manifest": path.name, "status": "would_queue", "argv": argvs, "notes": notes,
++                            "missing": missing})
++            continue
++
++        msg = f"🔭 {label}: data is in - processing {len(argvs)} target(s): " + ", ".join(a[2] for a in argvs)
++        if missing:
++            msg += f"\n⚠️ running without every frame after {cfg['max_wait_hours']} h: " + "; ".join(missing)
++        if notes:
++            msg += "\n" + "\n".join(notes)
++        entry.update(status="processing", pending=argvs, jobs=[], current=None, missing=missing, notes=notes,
++                     ready_at=now.isoformat(timespec="seconds"))
++        update(path.name, entry, msg)
++        _advance(path.name, entry, label, jobs_dir, cfg, update)
++
++    _report_overdue(plans_dir, state, cfg, now, notify, dry_run, changed)
++
++    if not dry_run:
++        save_state(jobs_dir, state)
++    return changed
++
++
++FAILED_STATUSES = ("failed", "died", "cancelled", "rejected")
++
++
++def _advance(name: str, entry: Dict[str, Any], label: str, jobs_dir: Path, cfg: Mapping[str, Any],
++             update: Callable[..., None]) -> None:
++    """Move a session's job chain one step: wait, queue the next job, or finish."""
++    current = entry.get("current")
++    if current:
++        try:
++            status = jobs.read_job(current, jobs_dir)["status"]
++        except (OSError, json.JSONDecodeError, KeyError):
++            status = "cancelled"   # job file deleted from the dashboard
++        if status not in ("succeeded",) + FAILED_STATUSES:
++            return                 # queued / awaiting approval / running
++        if status in FAILED_STATUSES:
++            left = len(entry.get("pending", []))
++            update(name, {**entry, "status": "failed", "failed_job": current, "failed_status": status},
++                   f"❌ {label}: job {current} {status}"
++                   + (f"; {left} remaining target(s) not started" if left else "")
++                   + " - see pipeline_jobs/ log, fix, then re-run from the dashboard.")
++            return
++        entry["current"] = None
++
++    if entry.get("pending"):
++        argv = entry["pending"].pop(0)
++        job = jobs.submit_request(argv, jobs_dir, needs_approval=bool(cfg["needs_approval"]))
++        entry["current"] = job["id"]
++        entry.setdefault("jobs", []).append(job["id"])
++        # with approval on, every step needs a click - say so each time
++        update(name, entry, f"▶️ {label}: {argv[2]} is awaiting your approval in the dashboard"
++               if cfg["needs_approval"] else None)
++        return
++
++    update(name, {**entry, "status": "done"},
++           f"✅ {label}: all {len(entry.get('jobs', []))} pipeline job(s) finished.")
++
++
++def _report_overdue(plans_dir: Path, state: Dict[str, Any], cfg: Mapping[str, Any], now: datetime,
++                    notify: Notifier, dry_run: bool, changed: List[Dict[str, Any]]) -> None:
++    """A plan whose night is over but that has no manifest: tell the owner once."""
++    reported = set(state.setdefault("overdue_reported", []))
++    for plan in sorted(plans_dir.glob(f"*{PLAN_SUFFIX}")):
++        if plan.name.startswith("."):
++            continue
++        manifest = plan.with_name(plan.name[: -len(PLAN_SUFFIX)] + MANIFEST_SUFFIX)
++        if manifest.exists() or plan.name in reported:
++            continue
++        try:
++            night = datetime.strptime(plan.name[:10], "%Y-%m-%d")
++        except ValueError:
++            continue
++        due = night + timedelta(days=1, hours=int(cfg["overdue_hour"]))
++        if now < due or now - due > timedelta(days=7):   # not yet, or too old to matter
++            continue
++        changed.append({"manifest": manifest.name, "status": "overdue"})
++        if not dry_run:
++            reported.add(plan.name)
++            try:
++                notify(f"⚠️ {plan.name}: the night is over but NINA wrote no session manifest "
++                       "(sequence aborted before 'SkyShare: Session Complete'?). Nothing was queued.")
++            except Exception as e:
++                logger.warning("session_watch: notify failed: %s", e)
++    state["overdue_reported"] = sorted(reported)
++
++
++def default_notifier(config: Mapping[str, Any]) -> Notifier:
++    from skystack.delivery import post_to_discord, webhook_url
++
++    url = webhook_url(config.get("remote_triage") or {})
++    if not url:
++        return lambda msg: None
++    return lambda msg: post_to_discord(url, msg, timeout_s=15)
++
++
++def main() -> None:
++    from astro_utils.config_loader import load_config
++
++    parser = argparse.ArgumentParser(description="Poll SkyShare session manifests once")
++    parser.add_argument("--dry-run", action="store_true", help="show what would be queued, change nothing")
++    args = parser.parse_args()
++    logging.basicConfig(level="INFO", format="%(asctime)s - %(levelname)s - %(message)s")
++    config = load_config(jobs.REPO_ROOT / "config.yaml")
++    changed = poll(config, dry_run=args.dry_run, notify=print if args.dry_run else None)
++    print(json.dumps(changed or load_state(jobs.DEFAULT_JOBS_DIR), indent=2))
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/skystack_server.py b/skystack_server.py
+index b62e1e7..77543c2 100644
+--- a/skystack_server.py
++++ b/skystack_server.py
+@@ -7,6 +7,9 @@ Starts, all bound to 127.0.0.1 only:
+   - the web triage server on remote_access.triage_port (8502)
+   - the job queue: every few seconds, starts the next queued request that
+     may run now (collaborators' requests only inside the access windows)
++  - the SkyShare session watcher (session_watch in config.yaml): when NINA
++    finishes a client's night it writes a session manifest to Dropbox; once
++    that night's frames have arrived, the jobs it lists are queued here
+ and, with remote_access.manage_tailscale_serve, publishes them with
+ `tailscale serve` while remote access is open and withdraws them when it
+ closes. Without it, publish once by hand (see README, "Remote access").
+@@ -23,7 +26,7 @@ import time
+ from pathlib import Path
+ 
+ from astro_utils.config_loader import load_config
+-from skystack import jobs
++from skystack import jobs, session_watch
+ from skystack.remote_access import ACT_AS_ENV, AccessConfig, tailscale_serve
+ from skystack.triage_server import TriageServer
+ 
+@@ -48,6 +51,11 @@ def _start_dashboard(port: int) -> subprocess.Popen:
+ 
+ 
+ def tick(access: AccessConfig) -> None:
++    try:
++        # queue jobs for finished SkyShare nights first, so they can start this same tick
++        session_watch.poll(load_config(REPO_ROOT / "config.yaml"))
++    except Exception:
++        logger.exception("session watcher failed (the job queue keeps running)")
+     job = jobs.start_next_queued(may_start=access.may_start)
+     if job:
+         logger.info("Started queued job %s: %s (requested by %s)", job["id"], " ".join(job["argv"]),
+diff --git a/tests/test_session_watch.py b/tests/test_session_watch.py
+new file mode 100644
+index 0000000..51bf386
+--- /dev/null
++++ b/tests/test_session_watch.py
+@@ -0,0 +1,224 @@
++"""Tests for skystack/session_watch.py - queue the pipeline when a SkyShare night finishes."""
++from __future__ import annotations
++
++import json
++from datetime import datetime, timedelta
++from pathlib import Path
++
++import pytest
++
++from skystack import jobs, session_watch as sw
++
++NIGHT = "2026-11-07"
++T0 = datetime(2026, 11, 8, 6, 30)
++
++
++@pytest.fixture
++def env(tmp_path):
++    cfg = {
++        "light_base_dir": str(tmp_path / "local" / "LIGHT"),
++        "flat_base_dir": str(tmp_path / "local" / "FLAT"),
++        "dropbox_source": str(tmp_path / "dropbox"),
++        "session_watch": {"enabled": True, "plans_dir": str(tmp_path / "dropbox" / "Plans"),
++                          "settle_minutes": 10, "max_wait_hours": 12},
++    }
++    (tmp_path / "dropbox" / "Plans").mkdir(parents=True)
++    return cfg, tmp_path / "jobs", tmp_path
++
++
++def manifest(env, targets, outcome="complete", stamp="2026-11-08T11:00:00Z", **extra):
++    cfg, _, _ = env
++    m = {
++        "schema_version": 1, "kind": "skyshare_session", "night": NIGHT, "client": "Jane",
++        "plan_file": f"{NIGHT}_Jane.plan.json", "completed_utc": stamp, "outcome": outcome,
++        "targets": [{"name": n, "session": NIGHT, "ran": k > 0, "lights_total": k} for n, k in targets],
++        "flats": {"frames_total": 30, "sets": [], "skipped": []},
++        "actions": [{"type": "skystack_run", "target": n, "sessions": [NIGHT], "triage": "send",
++                     "postprocess": None, "export": True} for n, k in targets if k > 0],
++        **extra,
++    }
++    path = Path(cfg["session_watch"]["plans_dir"]) / f"{NIGHT}_Jane.session.json"
++    path.write_text(json.dumps(m))
++    return path
++
++
++def lights(env, target, n, where="dropbox"):
++    _, _, root = env
++    base = root / "dropbox" / "LIGHT" if where == "dropbox" else root / "local" / "LIGHT"
++    d = base / target / NIGHT / "LIGHT" / "L"
++    d.mkdir(parents=True, exist_ok=True)
++    start = len(list(d.glob("*.fits")))
++    for i in range(start, start + n):
++        (d / f"LIGHT_L_{i:04d}.fits").write_bytes(b"x")
++
++
++def poll(env, now, **kw):
++    cfg, jobs_dir, _ = env
++    sent = []
++    changed = sw.poll(cfg, jobs_dir, now=now, notify=sent.append, **kw)
++    return changed, sent
++
++
++def finish(env, status="succeeded"):
++    """Pretend the queued job ran (the real runner writes this)."""
++    jobs_dir = env[1]
++    (job,) = jobs.waiting_jobs(jobs_dir)
++    job.update(status=status, returncode=0 if status == "succeeded" else 1)
++    jobs._write_job(jobs_dir, job)
++    return job
++
++
++def test_waits_for_frames_and_quiet_then_runs_chain_in_order(env):
++    manifest(env, [("NGC 7635 Jane", 4), ("M 31 Jane", 2)])
++    lights(env, "NGC 7635 Jane", 4)
++    lights(env, "M 31 Jane", 1)
++
++    changed, _ = poll(env, T0)
++    assert changed == []                                   # M 31 still short
++
++    lights(env, "M 31 Jane", 1, where="local")             # auto_transfer already moved one
++    poll(env, T0 + timedelta(minutes=1))                   # complete now, but not quiet yet
++    changed, sent = poll(env, T0 + timedelta(minutes=5))
++    assert changed == []
++
++    changed, sent = poll(env, T0 + timedelta(minutes=12))
++    assert changed[-1]["status"] == "processing"
++    assert "processing 2 target(s): NGC 7635 Jane, M 31 Jane" in sent[0]
++    (first,) = jobs.waiting_jobs(env[1])                   # only ONE job at a time
++    assert first["argv"][:3] == ["run", "-t", "NGC 7635 Jane"]
++    assert "--skip-transfer" not in first["argv"]          # first job transfers + builds masters
++    assert ["--triage", "send"] == first["argv"][5:7] and "--export" in first["argv"]
++
++    poll(env, T0 + timedelta(minutes=13))                  # still queued: nothing new
++    assert len(jobs.waiting_jobs(env[1])) == 1
++
++    finish(env)
++    poll(env, T0 + timedelta(minutes=20))
++    (second,) = jobs.waiting_jobs(env[1])
++    assert second["argv"][:3] == ["run", "-t", "M 31 Jane"]
++    assert {"--skip-transfer", "--skip-masters"} <= set(second["argv"])
++
++    finish(env)
++    changed, sent = poll(env, T0 + timedelta(minutes=40))
++    assert changed[-1]["status"] == "done" and "all 2 pipeline job(s) finished" in sent[-1]
++    changed, _ = poll(env, T0 + timedelta(minutes=50))     # never twice
++    assert changed == [] and jobs.waiting_jobs(env[1]) == []
++
++
++def test_failed_job_stops_the_chain(env):
++    manifest(env, [("A Jane", 1), ("B Jane", 1)])
++    lights(env, "A Jane", 1)
++    lights(env, "B Jane", 1)
++    poll(env, T0)
++    poll(env, T0 + timedelta(minutes=11))
++    finish(env, "failed")
++    changed, sent = poll(env, T0 + timedelta(minutes=20))
++    assert changed[-1]["status"] == "failed"
++    assert "1 remaining target(s) not started" in sent[-1]
++    assert jobs.waiting_jobs(env[1]) == []
++
++
++def test_needs_approval(env):
++    env[0]["session_watch"]["needs_approval"] = True
++    manifest(env, [("A Jane", 1)])
++    lights(env, "A Jane", 1)
++    poll(env, T0)
++    _, sent = poll(env, T0 + timedelta(minutes=11))
++    (job,) = jobs.waiting_jobs(env[1])
++    assert job["status"] == "awaiting_approval" and "awaiting your approval" in sent[-1]
++
++
++def test_state_file_is_not_mistaken_for_a_job(env):
++    manifest(env, [("A Jane", 1)])
++    lights(env, "A Jane", 1)
++    poll(env, T0)
++    assert (env[1] / "skyshare" / "sessions.json").exists()
++    assert all(j.get("argv") for j in jobs.list_jobs(env[1]))
++
++
++def test_argv_is_accepted_by_run_routine(env):
++    pytest.importorskip("xisf")   # run_routine imports the full pipeline
++    import run_routine
++
++    path = manifest(env, [("M 31 Jane", 2), ("M 33 Jane", 1)])
++    argvs, notes = sw.action_argvs(sw.read_manifest(path))
++    assert notes == []
++    for a in argvs:
++        run_routine.build_parser().parse_args(a)
++
++
++def test_runs_with_what_arrived_after_max_wait(env):
++    manifest(env, [("M 31 Jane", 10)])
++    lights(env, "M 31 Jane", 3)
++    poll(env, T0)
++    changed, _ = poll(env, T0 + timedelta(hours=6))
++    assert changed == []
++    changed, sent = poll(env, T0 + timedelta(hours=12, minutes=1))
++    assert changed[0]["status"] == "processing"
++    assert changed[0]["missing"] == ["M 31 Jane: 3/10"]
++    assert "running without every frame" in sent[0]
++
++
++def test_nothing_captured_is_acknowledged_without_a_job(env):
++    manifest(env, [("M 31 Jane", 0)], outcome="nothing_captured")
++    changed, sent = poll(env, T0)
++    assert changed[0]["status"] == "done" and jobs.waiting_jobs(env[1]) == []
++    assert "nothing captured" in sent[0]
++
++
++def test_rewritten_manifest_is_handled_again(env):
++    manifest(env, [("M 31 Jane", 1)])
++    lights(env, "M 31 Jane", 1)
++    poll(env, T0)
++    poll(env, T0 + timedelta(minutes=11))
++    assert len(jobs.waiting_jobs(env[1])) == 1
++    finish(env)
++
++    manifest(env, [("M 31 Jane", 2)], stamp="2026-11-08T12:00:00Z")   # NINA ran again
++    lights(env, "M 31 Jane", 1)
++    poll(env, T0 + timedelta(minutes=20))
++    poll(env, T0 + timedelta(minutes=31))
++    assert len(jobs.waiting_jobs(env[1])) == 1             # the new night's job
++
++
++def test_unknown_action_and_bad_manifest_are_reported_not_fatal(env):
++    path = manifest(env, [("M 31 Jane", 1)])
++    m = json.loads(path.read_text())
++    m["actions"].append({"type": "make_coffee"})
++    path.write_text(json.dumps(m))
++    argvs, notes = sw.action_argvs(m)
++    assert len(argvs) == 1 and "unknown type 'make_coffee'" in notes[0]
++
++    bad = path.with_name("2026-11-06_Bob.session.json")
++    bad.write_text("{ nope")
++    changed, sent = poll(env, T0)
++    assert any(c["status"] == "error" for c in changed)
++    changed, sent = poll(env, T0 + timedelta(minutes=1))   # reported once
++    assert not any(c.get("status") == "error" for c in changed) and not any("2026-11-06" in s for s in sent)
++
++
++def test_overdue_plan_without_manifest_is_reported_once(env):
++    cfg, _, _ = env
++    plans = Path(cfg["session_watch"]["plans_dir"])
++    (plans / f"{NIGHT}_Jane.plan.json").write_text("{}")
++    _, sent = poll(env, datetime(2026, 11, 8, 13, 0))
++    assert sent == []
++    _, sent = poll(env, datetime(2026, 11, 8, 14, 5))
++    assert "no session manifest" in sent[0]
++    _, sent = poll(env, datetime(2026, 11, 8, 15, 0))
++    assert sent == []
++
++
++def test_dry_run_changes_nothing(env):
++    manifest(env, [("M 31 Jane", 1)])
++    lights(env, "M 31 Jane", 1)
++    changed, sent = poll(env, T0, dry_run=True)
++    assert sent == [] and not (env[1] / "skyshare" / "sessions.json").exists()
++    assert changed[0]["status"] == "would_queue" and changed[0]["argv"][0][:3] == ["run", "-t", "M 31 Jane"]
++
++
++def test_disabled_does_nothing(env):
++    cfg, jobs_dir, _ = env
++    cfg["session_watch"]["enabled"] = False
++    manifest(env, [("M 31 Jane", 1)])
++    assert sw.poll(cfg, jobs_dir, now=T0, notify=lambda m: None) == []

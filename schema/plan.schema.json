@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skyshare.local/schema/plan.v1.json",
+  "title": "SkyShare night plan (v1)",
+  "description": "One reserved night on one telescope. Written by the Discord bot or SkyStack dashboard, read by the SkyShare Planner NINA plugin.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "night",
+    "targets"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "night": {
+      "description": "Local date the night STARTS on (evening date), YYYY-MM-DD. A session running at 02:00 on the 8th belongs to night 2026-11-07.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "client": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 64
+    },
+    "created_by": {
+      "description": "discord | dashboard | manual",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "created_utc": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/target"
+      }
+    },
+    "flats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 30
+        }
+      }
+    },
+    "processing": {
+      "description": "What the compute server (SkyStack) should do once the night's data has arrived. Copied into the session manifest as explicit actions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "false = capture only, no pipeline job"
+        },
+        "triage": {
+          "enum": [
+            "local",
+            "web",
+            "send",
+            "build",
+            null
+          ],
+          "default": null,
+          "description": "run_routine.py --triage mode; null = SkyStack config default"
+        },
+        "postprocess": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null,
+          "description": "null = SkyStack config default"
+        },
+        "export": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null,
+          "description": "client zip export; null = SkyStack default (client_targets)"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hhmm": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "ra",
+        "dec",
+        "exposures"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Also the SkyStack target folder (LIGHT/<name>/). The bot appends the client name, e.g. 'M 31 Jane Doe'."
+        },
+        "ra": {
+          "description": "J2000, HH:MM:SS(.s)",
+          "type": "string",
+          "pattern": "^\\d{1,2}:\\d{1,2}:\\d{1,2}(\\.\\d+)?$"
+        },
+        "dec": {
+          "description": "J2000, [+-]DD:MM:SS(.s)",
+          "type": "string",
+          "pattern": "^[+-]?\\d{1,2}:\\d{1,2}:\\d{1,2}(\\.\\d+)?$"
+        },
+        "rotation": {
+          "description": "Sky position angle, degrees",
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 360,
+          "default": 0
+        },
+        "start": {
+          "description": "Local HH:MM. Wait until this time before starting the target. Omit to start immediately.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/hhmm"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "end": {
+          "description": "Local HH:MM. Stop this target at this time. Omit to run until exposures finish or altitude limit.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/hhmm"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exposures": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "filter",
+              "exposure",
+              "count"
+            ],
+            "properties": {
+              "filter": {
+                "description": "Must match a filter name in the active NINA profile",
+                "type": "string"
+              },
+              "exposure": {
+                "description": "Seconds",
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 3600
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2000
+              },
+              "gain": {
+                "description": "-1 = camera default",
+                "type": "integer",
+                "minimum": -1,
+                "default": -1
+              },
+              "offset": {
+                "description": "-1 = camera default",
+                "type": "integer",
+                "minimum": -1,
+                "default": -1
+              },
+              "binning": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4,
+                "default": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

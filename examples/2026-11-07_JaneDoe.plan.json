@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "night": "2026-11-07",
+  "client": "Jane Doe",
+  "created_by": "discord",
+  "created_utc": "2026-11-06T19:25:00Z",
+  "targets": [
+    {
+      "name": "NGC 7635 Jane Doe",
+      "ra": "23:20:48.3",
+      "dec": "+61:12:06",
+      "rotation": 0,
+      "start": null,
+      "end": "23:30",
+      "exposures": [
+        {
+          "filter": "H",
+          "exposure": 300,
+          "count": 20,
+          "gain": 100
+        },
+        {
+          "filter": "O",
+          "exposure": 300,
+          "count": 10,
+          "gain": 100
+        }
+      ]
+    },
+    {
+      "name": "M 31 Jane Doe",
+      "ra": "00:42:44.3",
+      "dec": "+41:16:09",
+      "rotation": 35,
+      "start": "23:30",
+      "end": null,
+      "exposures": [
+        {
+          "filter": "L",
+          "exposure": 120,
+          "count": 60,
+          "gain": 0
+        },
+        {
+          "filter": "R",
+          "exposure": 120,
+          "count": 20,
+          "gain": 0
+        },
+        {
+          "filter": "G",
+          "exposure": 120,
+          "count": 20,
+          "gain": 0
+        },
+        {
+          "filter": "B",
+          "exposure": 120,
+          "count": 20,
+          "gain": 0
+        }
+      ]
+    }
+  ],
+  "flats": {
+    "enabled": true,
+    "count": 30
+  },
+  "processing": {
+    "enabled": true,
+    "triage": "send",
+    "postprocess": null,
+    "export": true
+  }
+}

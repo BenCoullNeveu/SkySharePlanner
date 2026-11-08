@@ -1,0 +1,62 @@
+<ResourceDictionary
+    x:Class="SkyShare.Planner.Resources.DataTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:SkyShare.Planner.Sequencer"
+    xmlns:nina="clr-namespace:NINA.View.Sequencer;assembly=NINA.Sequencer">
+
+    <!--
+      Sequencer views for the plugin's instructions.
+
+      The two containers (SkyShareTargets, SkyShareFlats) derive from SequentialContainer.
+      WPF resolves implicit DataTemplates up the type hierarchy, so they reuse NINA's
+      built-in Sequential Instruction Set view - no template needed here.
+      VERIFY on first load: if they render blank, copy NINA's SequentialContainer
+      DataTemplate (or Target Scheduler's container template) and add it below.
+    -->
+
+    <DataTemplate DataType="{x:Type local:LoadPlan}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="Plans folder" />
+                        <TextBox MinWidth="320" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding PlansDirectory}" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Night rolls over at" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding RolloverHour}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="h" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Wait for sync" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding WaitForPlanMinutes}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min" />
+                    </StackPanel>
+                    <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"
+                               Text="{Binding LoadedSummary}" />
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type local:RecordRotation}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <TextBlock VerticalAlignment="Center" Opacity="0.7"
+                           Text="Remembers rotator position for this target's flats" />
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type local:SessionComplete}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Opacity="0.7"
+                               Text="Writes the session manifest for SkyStack " />
+                    <TextBlock VerticalAlignment="Center" Text="{Binding LastManifest}" />
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+</ResourceDictionary>

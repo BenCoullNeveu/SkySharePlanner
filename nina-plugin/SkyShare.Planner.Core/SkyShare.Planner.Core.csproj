@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Pure logic (plan model, parsing, validation, flat planning).
+    No NINA or WPF references, so it builds and tests on Linux/macOS/CI.
+    The plugin project compiles these files in directly (see SkyShare.Planner.csproj),
+    so there is no extra DLL to deploy.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SkyShare.Planner.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

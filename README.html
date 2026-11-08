@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>SkyShare Planner</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+/* From extension UltraByteSoftwares.markdown-tree */
+.ultree {
+    --lineheight: 1rem;
+    --branchthickness: 2px;
+}
+
+.ultree ul {
+    list-style-type: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.ultree li {
+    position: relative;
+    border: 0 solid transparent;
+}
+
+.ultree li li {
+    border-left: var(--branchthickness) solid gray;
+    padding-left: calc(var(--lineheight) * 2);
+    margin-left: calc(var(--lineheight) * 0.25);
+}
+
+.ultree li li:last-child {
+    border-left: var(--branchthickness) solid transparent;
+}
+
+.ultree li li::before {
+    content: '';
+    display: block;
+    position: absolute;
+    top: calc(var(--lineheight) * -0.125);
+    left: calc(var(--branchthickness) * -1);
+    height: var(--lineheight);
+    width: var(--lineheight);
+    border: solid gray;
+    border-width: 0 0 var(--branchthickness) var(--branchthickness);
+}
+
+.ultree summary {
+    cursor: pointer;
+}
+</style>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="skyshare-planner">SkyShare Planner</h1>
+<p><strong>SkyShare Planner</strong> builds the night's NINA sequence from a plan file:</p>
+<ol>
+<li>The Discord bot or the SkyStack dashboard writes a small <strong>plan file</strong> describing one reserved night (targets, order, time windows and exposures) into Dropbox.</li>
+<li>A NINA plugin reads that plan when the sequence starts and builds the real sequence from NINA's own instruction objects.</li>
+</ol>
+<p>This replaces <code>NINASequenceGenerator.py</code>, which edited <code>TemplateSequence.json</code> as text. Compared with that approach, the plugin:</p>
+<ul>
+<li>handles multiple targets per night, in a fixed order that you control (no scheduler picking targets),</li>
+<li>builds flats after imaging, only for the targets that actually ran, de-duplicated and grouped by camera orientation,</li>
+<li>checks filter names against the live NINA profile and refuses a plan for the wrong night,</li>
+<li>handles <code>$id</code>/<code>$ref</code> itself, because NINA does the saving and loading, so there is no renumbering,</li>
+<li>reports progress back to Discord,</li>
+<li>hands the night to SkyStack when it ends: a <strong>session manifest</strong> tells the compute server what was captured and what to run, and SkyStack starts the pipeline once the files have arrived (<a href="#6-hand-off-to-skystack">§6</a>).</li>
+</ul>
+<blockquote>
+<p><strong>Status: scaffold.</strong> The Python side and the plugin's logic layer (<code>SkyShare.Planner.Core</code>) have tests. The NINA-facing layer has <strong>not been compiled yet</strong>. It was written against the NINA 3.x sequencer API, and calls that need checking against the NINA source are marked <code>// VERIFY</code>. See <a href="#first-build-checklist">First build checklist</a>.</p>
+</blockquote>
+<hr>
+<h2 id="1-pipeline-overview">1. Pipeline overview</h2>
+<pre><code class="language-mermaid">flowchart LR
+    subgraph Clients[&quot;Clients&quot;]
+        D[&quot;Discord bot&lt;br/&gt;wizard / JSON&quot;]
+        S[&quot;SkyStack dashboard&lt;br/&gt;Plan page (TBD)&quot;]
+    end
+
+    subgraph PY[&quot;Python (compute server)&quot;]
+        P[&quot;skyshare_plan.py&lt;br/&gt;build + validate&quot;]
+    end
+
+    subgraph DB[&quot;Dropbox: SkyShare Data/Plans&quot;]
+        F[(&quot;2026-11-07_JaneDoe.plan.json&quot;)]
+        ST[(&quot;…plan.status.jsonl&quot;)]
+        M[(&quot;2026-11-07_JaneDoe.session.json&quot;)]
+        IMG[(&quot;LIGHT/ FLAT/ frames&quot;)]
+    end
+
+    subgraph ACQ[&quot;Acquisition PC: NINA&quot;]
+        T[&quot;Night template&lt;br/&gt;(static, loaded every night)&quot;]
+        L[&quot;SkyShare: Load Plan&quot;]
+        TG[&quot;SkyShare Targets&quot;]
+        FL[&quot;SkyShare Flats&quot;]
+        SC[&quot;SkyShare: Session Complete&quot;]
+    end
+
+    subgraph CS[&quot;Compute server: SkyStack&quot;]
+        W[&quot;session_watch&lt;br/&gt;(skystack_server tick)&quot;]
+        J[&quot;job queue → run_routine.py run&quot;]
+    end
+
+    D --&gt; P
+    S --&gt; P
+    P -- &quot;atomic write&quot; --&gt; F
+    F -- &quot;Dropbox sync&quot; --&gt; L
+    T --&gt; L --&gt; TG --&gt; FL --&gt; SC
+    TG -- &quot;NINA saves frames&quot; --&gt; IMG
+    SC -- &quot;manifest&quot; --&gt; M
+    M -- &quot;Dropbox sync&quot; --&gt; W
+    IMG -- &quot;Dropbox sync&quot; --&gt; W
+    W -- &quot;frames arrived → queue&quot; --&gt; J
+    L -. events .-&gt; ST
+    TG -. events .-&gt; ST
+    FL -. events .-&gt; ST
+    ST -- &quot;Dropbox sync&quot; --&gt; D
+</code></pre>
+<ul>
+<li><strong>Only the plan file travels.</strong> The NINA template stays the same every night. Everything that varies between nights is in the plan, and everything about how the scope runs is in the template.</li>
+<li><strong>Dropbox is the transport.</strong> You already sync it, so there are no ports to open and nothing breaks if Tailscale is down. Status comes back the same way, and optionally via a Discord webhook.</li>
+<li><strong>The night ends with a hand-off.</strong> <em>Session Complete</em> writes a manifest. SkyStack waits for the frames it lists, then runs the pipeline jobs it names.</li>
+<li><strong>Validation happens twice.</strong> Python checks the plan when it's written, so a typo is caught while the user is still in the chat. The plugin checks again at dusk against the real profile and equipment.</li>
+</ul>
+<hr>
+<h2 id="2-what-happens-during-the-night">2. What happens during the night</h2>
+<pre><code class="language-mermaid">sequenceDiagram
+    autonumber
+    participant U as Client (Discord)
+    participant B as Bot + skyshare_plan.py
+    participant X as Dropbox
+    participant N as NINA (template)
+    participant LP as Load Plan
+    participant TG as SkyShare Targets
+    participant FL as SkyShare Flats
+    participant SC as Session Complete
+    participant SS as SkyStack (compute)
+
+    U-&gt;&gt;B: target, coords, rotation, exposures
+    B-&gt;&gt;B: validate (filters, ranges, one plan per night)
+    B-&gt;&gt;X: write .tmp, then rename to 2026-11-07_Jane.plan.json
+    B--&gt;&gt;U: summary + plan file
+
+    Note over N: Operator / scheduler starts the template at dusk
+    N-&gt;&gt;LP: Start area
+    LP-&gt;&gt;X: find 2026-11-07_*.plan.json (waits for sync)
+    LP-&gt;&gt;LP: parse + validate vs profile, rotator, night
+    alt invalid or missing
+        LP--&gt;&gt;X: status: plan_invalid
+        LP--xN: instruction fails, sequence aborts
+    end
+    LP--&gt;&gt;X: status: plan_loaded
+    N-&gt;&gt;TG: When Safe
+    TG-&gt;&gt;TG: clone PROTOTYPE once per target, set coords / PA / times / exposures
+    loop each target in plan order
+        TG-&gt;&gt;TG: wait for start, slew, center, (Record Rotation), Smart Exposures until end
+    end
+    TG--&gt;&gt;X: status: targets_done
+    N-&gt;&gt;FL: End area
+    FL-&gt;&gt;FL: FlatPlanner: which targets ran? group by orientation, de-dupe specs
+    FL-&gt;&gt;FL: clone flats PROTOTYPE per group (rotate if possible)
+    FL--&gt;&gt;X: status: flats_built / flats_done
+    N-&gt;&gt;SC: last item
+    SC-&gt;&gt;X: 2026-11-07_Jane.session.json (captured + actions)
+    X--&gt;&gt;B: status lines
+    B--&gt;&gt;U: &quot;plan loaded&quot;, &quot;flats done&quot;, &quot;session complete&quot;…
+    X--&gt;&gt;SS: manifest + frames (Dropbox)
+    SS-&gt;&gt;SS: wait until frames arrived and quiet, then queue jobs one by one
+    SS--&gt;&gt;U: Discord: &quot;data is in, processing…&quot;, &quot;all jobs finished&quot;
+</code></pre>
+<p><strong>Weather loops:</strong> if &quot;When Safe&quot; loops after an unsafe interruption, <code>SkyShare Targets</code> does <strong>not</strong> rebuild. Finished targets keep their <em>finished</em> status, so NINA resumes at the interrupted target.</p>
+<hr>
+<h2 id="3-template-contract">3. Template contract</h2>
+<p>The plugin builds from <strong>prototypes</strong> that you design once, in the NINA UI, inside the template. A prototype decides how a target is run: slew, center, autofocus triggers, guiding, dithering, altitude limits. The plan only supplies the values. A prototype is a normal container named <code>PROTOTYPE</code> and set to <strong>Disabled</strong> (right-click &gt; Disable). It never runs itself; it is only cloned.</p>
+<pre><code class="language-text">Night template (saved once; replaces TemplateSequence.json)
+│
+├─ Start
+│   ├─ SkyShare: Load Plan            ← NEW, first instruction (Error behaviour: Abort)
+│   └─ STARTUP …                       (unchanged: cool camera, unpark, …)
+│
+├─ Targets
+│   └─ IMAGING INSTRUCTIONS
+│       ├─ When Safe
+│       │   └─ SkyShare Targets        ← NEW, replaces &quot;TEMPLATE DSO&quot;
+│       │       ├─ PROTOTYPE  (Deep Sky Object container, DISABLED)
+│       │       │   ├─ Wait for Time           ← optional: plan &quot;start&quot; (Time provider, not Dusk)
+│       │       │   ├─ Slew / Center and Rotate
+│       │       │   ├─ SkyShare: Record Rotation   ← optional, needed for multi-orientation flats
+│       │       │   ├─ triggers: AF after filter change, Center after drift, …
+│       │       │   └─ EXPOSURES
+│       │       │       ├─ cond: Loop until Time   ← optional: plan &quot;end&quot;
+│       │       │       ├─ cond: Altitude (HasDsoParent)
+│       │       │       ├─ Smart Exposure          ← exactly one; cloned per plan exposure
+│       │       │       └─ Dither                  (anything after stays after)
+│       │       ├─ ▶ NGC 7635      (generated at run time)
+│       │       └─ ▶ M 31          (generated at run time)
+│       └─ When Unsafe …
+│
+└─ End
+    └─ END OF SEQUENCE
+        ├─ FLATS
+        │   └─ SkyShare Flats          ← NEW, replaces &quot;FLAT INSTRUCTIONS&quot;
+        │       ├─ PROTOTYPE  (Sequential, DISABLED)
+        │       │   ├─ Move Rotator Mechanical  ← optional; set or removed per group
+        │       │   └─ Trained Flat Exposure    ← exactly one; cloned per flat spec
+        │       ├─ ▶ Flats @ 35° - M 31       (generated: current orientation first)
+        │       └─ ▶ Flats @ 0° - NGC 7635    (generated, only if a rotator exists)
+        ├─ END …
+        └─ SkyShare: Session Complete  ← NEW, very last item: writes the manifest for SkyStack
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Plan field</th>
+<th>Written to</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code>, <code>ra</code>, <code>dec</code></td>
+<td>DSO container <code>Target.TargetName</code>, <code>Target.InputCoordinates</code> (J2000). Center and Altitude items with <em>HasDsoParent</em> inherit them.</td>
+</tr>
+<tr>
+<td><code>rotation</code></td>
+<td><code>Target.PositionAngle</code>, used by <em>Center and Rotate</em></td>
+</tr>
+<tr>
+<td><code>start</code> / <code>end</code></td>
+<td><code>Wait for Time</code> / <code>Loop until Time</code> in the prototype. Removed if <code>null</code>.</td>
+</tr>
+<tr>
+<td><code>exposures[]</code></td>
+<td>one Smart Exposure per entry: <code>SwitchFilter.Filter</code>, <code>TakeExposure.ExposureTime / Gain / Offset / Binning</code>, <code>LoopCondition.Iterations</code></td>
+</tr>
+<tr>
+<td><code>flats.count</code></td>
+<td><code>LoopCondition.Iterations</code> inside each Trained Flat Exposure</td>
+</tr>
+</tbody>
+</table>
+<p>Generated blocks start with <code>▶ </code>. Every run deletes and rebuilds them, so the saved template never accumulates old targets.</p>
+<hr>
+<h2 id="4-how-targets-are-built">4. How targets are built</h2>
+<pre><code class="language-mermaid">flowchart TD
+    A[SkyShare Targets starts] --&gt; B{Plan already built&lt;br/&gt;for this Load Plan?}
+    B -- yes, weather loop --&gt; R[Run children:&lt;br/&gt;finished ones are skipped]
+    B -- no --&gt; C[Find disabled PROTOTYPE]
+    C --&gt; D[Remove old ▶ blocks]
+    D --&gt; E[For each plan target, in order]
+    E --&gt; F[Clone PROTOTYPE]
+    F --&gt; G[Set name, J2000 coords, position angle]
+    G --&gt; H{start / end given?}
+    H -- yes --&gt; I[Set Wait for Time / Loop until Time]
+    H -- no --&gt; J[Remove those items]
+    I --&gt; K
+    J --&gt; K[Clone Smart Exposure per exposure:&lt;br/&gt;filter from profile, exposure, gain, offset, binning, count]
+    K --&gt; L[Register block → target index]
+    L --&gt; E
+    E -- done --&gt; R
+</code></pre>
+<hr>
+<h2 id="5-how-flats-are-decided">5. How flats are decided</h2>
+<p>Flats are built <strong>after</strong> imaging, so the plugin knows what actually happened during the night.</p>
+<pre><code class="language-mermaid">flowchart TD
+    A[SkyShare Flats starts] --&gt; B{Plan loaded?}
+    B -- no --&gt; Z[Skip quietly]
+    B -- yes --&gt; C[Targets that ran =&lt;br/&gt;any Smart Exposure loop advanced]
+    C --&gt; D[Bucket by sky rotation ±0.5°]
+    D --&gt; E[Order: last target's orientation first&lt;br/&gt;= where the camera is now]
+    E --&gt; F{For each bucket}
+    F -- first bucket --&gt; G[No rotator move]
+    F -- other bucket --&gt; H{Rotator connected&lt;br/&gt;and position recorded?}
+    H -- no --&gt; S[Skip + warn:&lt;br/&gt;camera is at a different angle]
+    H -- yes --&gt; I[Move Rotator Mechanical → recorded position]
+    G --&gt; J[De-dupe specs:&lt;br/&gt;filter + gain + offset + binning]
+    I --&gt; J
+    J --&gt; K[Clone Trained Flat Exposure per spec]
+</code></pre>
+<ul>
+<li><strong>Flat spec = filter + gain + offset + binning.</strong> Two targets at the same orientation that both shoot H at gain 100 share one H flat set.</li>
+<li><strong>Trained Flat Exposure</strong> looks up panel brightness and exposure from NINA's trained-flat table, so <code>FLAT_LIBRARY</code> moves from Python into NINA (Flat Wizard / Flat Panel tab).</li>
+<li><strong>Without a rotator,</strong> a multi-orientation night can only get flats for the final orientation. The bot warns about this when the plan is created, and the plugin logs it again at dusk.</li>
+<li><strong>Why record the rotator position:</strong> the plan stores the sky position angle, but the rotator's <em>mechanical</em> angle for that PA depends on its sync. <code>SkyShare: Record Rotation</code> measures it right after <em>Center and Rotate</em>, so the flats can return to exactly the same orientation.</li>
+</ul>
+<hr>
+<h2 id="6-hand-off-to-skystack">6. Hand-off to SkyStack</h2>
+<p>When the night ends, <strong>SkyShare: Session Complete</strong> writes <code>&lt;night&gt;_&lt;client&gt;.session.json</code> next to the plan. It's an atomic write, like the plan. The manifest carries two things:</p>
+<ul>
+<li><strong>What was captured:</strong> frames per target and filter (counted from the Smart Exposure loops), plus the flat sets taken. SkyStack uses these counts to know when Dropbox has delivered everything.</li>
+<li><strong>What to do with it:</strong> an explicit <code>actions</code> list. v1 has one action type, <code>skystack_run</code>, which means <code>run_routine.py run -t &lt;target&gt; -s &lt;night&gt; [--triage …] [--export] [--postprocess]</code>. The options come from the plan's <code>processing</code> block, so the client's reservation decides them. There's one action per target that got frames.</li>
+</ul>
+<pre><code class="language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;schema_version&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;kind&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;skyshare_session&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;night&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2026-11-07&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;client&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Jane Doe&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;outcome&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;partial&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;targets&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;NGC 7635 Jane Doe&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;session&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2026-11-07&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;ran&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;lights&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;H&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">20</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;O&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">10</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;lights_total&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">30</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;planned_total&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">30</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;M 31 Jane Doe&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;session&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2026-11-07&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;ran&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;lights&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;L&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">41</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;lights_total&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">41</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;planned_total&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">120</span> <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;flats&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;frames_total&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">150</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;sets&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span> … <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;skipped&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-punctuation">]</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;actions&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;skystack_run&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;NGC 7635 Jane Doe&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;sessions&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;2026-11-07&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;triage&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;send&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;postprocess&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">null</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;export&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;type&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;skystack_run&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;target&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;M 31 Jane Doe&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;sessions&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span><span class="hljs-string">&quot;2026-11-07&quot;</span><span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;triage&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;send&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;postprocess&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">null</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;export&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span> <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>On the compute server, <code>skystack/session_watch.py</code> runs on every <code>skystack_server.py</code> tick (15 s):</p>
+<pre><code class="language-mermaid">flowchart TD
+    A[New or rewritten *.session.json] --&gt; B{outcome / actions}
+    B -- &quot;nothing captured&lt;br/&gt;or processing disabled&quot; --&gt; Z[Mark done, tell Discord, no job]
+    B -- has actions --&gt; C[Count frames per target in&lt;br/&gt;Dropbox LIGHT/ and local LIGHT/]
+    C --&gt; D{All listed frames here&lt;br/&gt;AND no new LIGHT/FLAT files&lt;br/&gt;for settle_minutes?}
+    D -- no --&gt; E{Waited max_wait_hours?}
+    E -- no --&gt; C
+    E -- yes --&gt; F
+    D -- yes --&gt; F[Queue job 1:&lt;br/&gt;run -t target1 -s night&lt;br/&gt;with transfer + masters]
+    F --&gt; G{Job result}
+    G -- succeeded --&gt; H{More actions?}
+    H -- yes --&gt; I[Queue next job:&lt;br/&gt;--skip-transfer --skip-masters]
+    I --&gt; G
+    H -- no --&gt; K[Done ✅ Discord]
+    G -- &quot;failed / died / cancelled&quot; --&gt; X[Stop chain ❌ Discord]
+</code></pre>
+<ul>
+<li><strong>Jobs run one at a time.</strong> A job is queued only after the previous one succeeded, because the first job runs transfer and masters and later ones rely on that. They use SkyStack's normal job queue, so they appear in the dashboard, keep to the one-PixInsight-at-a-time rule, and need <strong>Approve</strong> if <code>session_watch.needs_approval: true</code>.</li>
+<li><strong>The flats wait is covered too.</strong> &quot;No new LIGHT/FLAT files for <code>settle_minutes</code>&quot; means flats that sync after the lights are in place before <code>masters</code> runs.</li>
+<li><strong>Missing frames:</strong> after <code>max_wait_hours</code> it runs with what has arrived and lists what was short.</li>
+<li><strong>No manifest:</strong> if a plan's night is over (by <code>overdue_hour</code> the next day) and there's no manifest, it reports once. That usually means the sequence aborted before <em>Session Complete</em>. Nothing runs automatically; start it from the dashboard.</li>
+<li><strong>Re-runs:</strong> if NINA rewrites the manifest (a new <code>completed_utc</code>), the session is handled again. Otherwise restarts never queue anything twice. State is kept in <code>pipeline_jobs/skyshare/sessions.json</code>.</li>
+<li><strong>Unknown action types</strong> are skipped and reported, so newer plugins don't break older SkyStack versions.</li>
+<li>Check without changing anything: <code>python -m skystack.session_watch --dry-run</code>.</li>
+</ul>
+<p><strong>Folder names must line up.</strong> SkyStack looks for <code>LIGHT/&lt;target&gt;/&lt;night&gt;/</code>, so NINA's image file pattern has to produce that:</p>
+<ul>
+<li><code>$$TARGETNAME$$</code> gives the target folder. The plugin sets it to the plan's target name, and the bot appends the client name as before (<code>M 31 Jane Doe</code>).</li>
+<li><code>$$DATEMINUS12$$</code> gives the session folder. It's the date the night started, the same as the plan's <code>night</code>.</li>
+<li>For example: <code>$$IMAGETYPE$$\$$TARGETNAME$$\$$DATEMINUS12$$\$$IMAGETYPE$$\$$FILTER$$\…</code>. Keep the rest of your current pattern.</li>
+</ul>
+<p>SkyStack config (<code>config.yaml</code>):</p>
+<pre><code class="language-yaml"><span class="hljs-attr">session_watch:</span>
+  <span class="hljs-attr">enabled:</span> <span class="hljs-literal">true</span>
+  <span class="hljs-attr">plans_dir:</span> <span class="hljs-string">&#x27;D:\Dropbox\SkyShare Data\Plans&#x27;</span>
+  <span class="hljs-attr">settle_minutes:</span> <span class="hljs-number">10</span>
+  <span class="hljs-attr">max_wait_hours:</span> <span class="hljs-number">12</span>
+  <span class="hljs-attr">needs_approval:</span> <span class="hljs-literal">false</span>
+  <span class="hljs-attr">overdue_hour:</span> <span class="hljs-number">14</span>
+</code></pre>
+<hr>
+<h2 id="7-plan-file-schema-v1">7. Plan file (schema v1)</h2>
+<p>File name: <code>YYYY-MM-DD_&lt;Client&gt;.plan.json</code>. The date is the <strong>evening the night starts</strong>, so a session running at 02:00 on the 8th uses the file dated the 7th. Only one plan per night is allowed; the writer and the plugin both refuse more than one.</p>
+<pre><code class="language-json"><span class="hljs-punctuation">{</span>
+  <span class="hljs-attr">&quot;schema_version&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">1</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;night&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;2026-11-07&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;client&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;Jane Doe&quot;</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;targets&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span>
+    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;NGC 7635&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;ra&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;23:20:48.3&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;dec&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;+61:12:06&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;rotation&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;start&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">null</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;end&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;23:30&quot;</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;exposures&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;filter&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;H&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;exposure&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">300</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;count&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">20</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;gain&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">100</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">]</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+    <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;name&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;M 31&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;ra&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;00:42:44.3&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;dec&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;+41:16:09&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;rotation&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">35</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;start&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;23:30&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;end&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">null</span><span class="hljs-punctuation">,</span>
+      <span class="hljs-attr">&quot;exposures&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">[</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;filter&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;L&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;exposure&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">120</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;count&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">60</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;gain&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">0</span> <span class="hljs-punctuation">}</span> <span class="hljs-punctuation">]</span> <span class="hljs-punctuation">}</span>
+  <span class="hljs-punctuation">]</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;flats&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;enabled&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;count&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-number">30</span> <span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-attr">&quot;processing&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-punctuation">{</span> <span class="hljs-attr">&quot;enabled&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;triage&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-string">&quot;send&quot;</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;postprocess&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">null</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">&quot;export&quot;</span><span class="hljs-punctuation">:</span> <span class="hljs-keyword">true</span> <span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p><code>processing</code> is passed through to the session manifest as SkyStack actions (§6). <code>null</code> means use SkyStack's config default. Set <code>&quot;enabled&quot;: false</code> for capture-only nights. Target names are also SkyStack folder names, so they must be unique within a plan.</p>
+<p>The full definition is in <a href="schema/plan.schema.json"><code>schema/plan.schema.json</code></a>, and there's a complete example in <a href="examples/"><code>examples/</code></a>. <code>gain</code> and <code>offset</code> default to <code>-1</code>, meaning the camera default. <code>start</code> and <code>end</code> are local 24-hour times.</p>
+<hr>
+<h2 id="8-repository-layout">8. Repository layout</h2>
+<pre><code class="language-text">SkySharePlanner/
+├─ README.md
+├─ schema/plan.schema.json            plan contract shared by Python and C#
+├─ schema/session.schema.json         session manifest contract (NINA → SkyStack)
+├─ examples/2026-11-07_JaneDoe.plan.json
+├─ python/
+│  ├─ skyshare_plan.py                model, validate, plan_from_wizard, atomic write_plan, summary
+│  ├─ bot_integration.py              publish_from_bot() + StatusTailer for skysharebot.py
+│  └─ test_skyshare_plan.py           pytest (13 tests)
+└─ nina-plugin/
+   ├─ SkyShare.Planner.sln
+   ├─ SkyShare.Planner.Core/          pure logic, no NINA refs, builds on any OS
+   │  ├─ PlanModel.cs                 JSON model
+   │  ├─ PlanParser.cs                parse + PlanValidator
+   │  ├─ PlanLocator.cs               night rollover, find tonight&#x27;s file
+   │  ├─ FlatPlanner.cs               which flats, grouped how
+   │  ├─ SessionManifest.cs           end-of-night manifest + actions
+   │  └─ Sexagesimal.cs
+   ├─ SkyShare.Planner.Tests/         NUnit tests for Core
+   └─ SkyShare.Planner/               the NINA plugin (WPF, Windows)
+      ├─ SkySharePlannerPlugin.cs     manifest
+      ├─ Properties/AssemblyInfo.cs   plugin metadata
+      ├─ Runtime/PlanStore.cs         shared state for the night
+      ├─ Runtime/SequenceTree.cs      clone / find / UI-thread helpers
+      ├─ Runtime/StatusReporter.cs    status.jsonl + optional webhook
+      ├─ Sequencer/LoadPlan.cs        instruction
+      ├─ Sequencer/RecordRotation.cs  instruction
+      ├─ Sequencer/SkyShareTargets.cs container
+      ├─ Sequencer/TargetBuilder.cs
+      ├─ Sequencer/SkyShareFlats.cs   container
+      ├─ Sequencer/FlatsBuilder.cs
+      ├─ Sequencer/SessionComplete.cs instruction (writes the manifest)
+      └─ Resources/DataTemplates.xaml sequencer UI
+skystack-integration/                 drop-in for the SkyStack repo
+├─ skystack/session_watch.py          watcher (new)
+├─ tests/test_session_watch.py        11 tests
+└─ skystack-session-watch.patch       full patch: the two files + skystack_server.py hook + config.yaml section
+</code></pre>
+<p>The plugin compiles the Core files in directly, so only one DLL needs deploying, and the tested logic is the same code that runs in NINA.</p>
+<hr>
+<h2 id="9-setup">9. Setup</h2>
+<h3 id="91-build-and-install-the-plugin-acquisition-pc">9.1 Build and install the plugin (acquisition PC)</h3>
+<ol>
+<li>Install the .NET SDK that matches your NINA (8 for NINA 3.2, 10 for 3.3 nightlies) and Visual Studio with <em>.NET desktop development</em>.</li>
+<li>Open <code>nina-plugin/SkyShare.Planner.sln</code> and build <strong>Debug</strong>. The post-build step copies the DLL to <code>%LOCALAPPDATA%\NINA\Plugins\3.0.0\SkyShare Planner\</code>.</li>
+<li>Restart NINA. A <strong>SkyShare</strong> category appears in the sequencer's instruction list.</li>
+<li>To run the logic tests (any OS): <code>dotnet test nina-plugin/SkyShare.Planner.Tests</code>.</li>
+</ol>
+<h3 id="92-train-flats-in-nina-once-per-filter-and-gain">9.2 Train flats in NINA (once per filter and gain)</h3>
+<p>In the Flat Wizard, train every filter + gain + binning combination clients can request (L/R/G/B at gain 0, H/O/S at gain 100). This replaces <code>FLAT_LIBRARY</code>. Trained Flat Exposure won't run for a combination that hasn't been trained.</p>
+<h3 id="93-convert-the-template">9.3 Convert the template</h3>
+<ol>
+<li>Open your current <code>TemplateSequence.json</code> in NINA.</li>
+<li>In <strong>Start</strong>, add <strong>SkyShare: Load Plan</strong> as the first item. Set the plans folder to <code>…\Dropbox\SkyShare Data\Plans</code> and the error behaviour to <strong>Abort</strong>.</li>
+<li>In <strong>When Safe</strong>, add <strong>SkyShare Targets</strong>. Drag your existing <code>TEMPLATE DSO</code> into it, rename it <code>PROTOTYPE</code> and <strong>Disable</strong> it. Check that it contains:
+<ul>
+<li>an <code>EXPOSURES</code> container with <strong>exactly one</strong> Smart Exposure (its filter and values don't matter),</li>
+<li>optionally <em>Wait for Time</em> (Time provider) and a <em>Loop until Time</em> condition on <code>EXPOSURES</code>,</li>
+<li>optionally <em>SkyShare: Record Rotation</em> after <em>Center and Rotate</em>.</li>
+</ul>
+</li>
+<li>In <strong>FLATS</strong>, add <strong>SkyShare Flats</strong>. Inside it, create a Sequential container named <code>PROTOTYPE</code>, <strong>Disable</strong> it, and add <strong>one</strong> Trained Flat Exposure (plus <em>Move Rotator Mechanical</em> if you have a rotator). Delete the old <code>FLAT INSTRUCTIONS</code> container.</li>
+<li>Add <strong>SkyShare: Session Complete</strong> as the <strong>last</strong> item of the End area.</li>
+<li>Check NINA's image file pattern (Options &gt; Imaging). It must give <code>LIGHT/&lt;target&gt;/&lt;$$DATEMINUS12$$&gt;/…</code>, as described in §6.</li>
+<li>Save it as the night template. The same file is loaded every night.</li>
+</ol>
+<h3 id="94-make-the-dropbox-folder-reliable">9.4 Make the Dropbox folder reliable</h3>
+<ul>
+<li>Mark <code>SkyShare Data\Plans</code> as <strong>Available offline</strong> on the acquisition PC. Otherwise Dropbox can leave online-only placeholders that NINA can't read.</li>
+<li><code>write_plan()</code> writes a hidden <code>.tmp</code> file and renames it, so NINA never reads a half-synced file. <em>Load Plan</em> also waits up to <em>Wait for sync</em> minutes (default 10) for the file to appear.</li>
+</ul>
+<h3 id="95-wire-up-the-discord-bot">9.5 Wire up the Discord bot</h3>
+<p>Add <code>plans_directory</code> to <code>config.yaml</code> under <code>discord:</code>, then in <code>skysharebot.py</code> replace both <code>updateSequence(...)</code> calls:</p>
+<pre><code class="language-python"><span class="hljs-keyword">from</span> bot_integration <span class="hljs-keyword">import</span> publish_from_bot, StatusTailer
+<span class="hljs-keyword">from</span> skyshare_plan <span class="hljs-keyword">import</span> PlanError
+
+<span class="hljs-keyword">try</span>:
+    path, text = <span class="hljs-keyword">await</span> asyncio.to_thread(publish_from_bot, seq, PLANS_DIR)
+    <span class="hljs-keyword">await</span> channel.send(<span class="hljs-string">f&quot;Plan saved for NINA:\n<span class="hljs-subst">{text}</span>&quot;</span>, file=discord.File(path))
+<span class="hljs-keyword">except</span> PlanError <span class="hljs-keyword">as</span> e:
+    <span class="hljs-keyword">await</span> channel.send(<span class="hljs-string">&quot;Plan rejected:\n- &quot;</span> + <span class="hljs-string">&quot;\n- &quot;</span>.join(e.problems))
+</code></pre>
+<p>Your existing wizard dict (<code>name, ra, dec, rot, exposures, date, user</code>) works unchanged. <code>plan_from_wizard</code> converts <code>DD-MM-YYYY</code> dates and applies your narrowband-gain rule. For multi-target nights, pass <code>{&quot;date&quot;, &quot;user&quot;, &quot;targets&quot;: [ {...}, {...} ]}</code>, where each entry has the same keys plus optional <code>start</code>/<code>end</code>.</p>
+<p>To post the night's progress, run <code>StatusTailer(PLANS_DIR).poll()</code> every 30 s from a <code>tasks.loop</code>. There's an example in the <code>bot_integration.py</code> docstring.</p>
+<p>Optional instant alerts: set the environment variable <code>SKYSHARE_DISCORD_WEBHOOK</code> on the acquisition PC. It's kept out of the template and out of Dropbox deliberately.</p>
+<blockquote>
+<p>⚠️ <code>config.yaml</code> currently contains the bot token in plain text. Reset it in the Discord Developer Portal, then load it from an environment variable or an untracked file before this goes anywhere near the SkyStack repo.</p>
+</blockquote>
+<h3 id="96-skystack-compute-server">9.6 SkyStack (compute server)</h3>
+<p>From the SkyStack repo root, run <code>git apply path/to/skystack-session-watch.patch</code>. Alternatively, copy <code>skystack-integration/skystack/session_watch.py</code> and the test into place and make the two small edits shown in the patch: one line in <code>skystack_server.tick</code>, and the config section. Then set <code>session_watch.enabled: true</code> and restart <code>skystack_server.py</code>. Discord messages use the existing <code>SKYSTACK_DISCORD_WEBHOOK</code>.</p>
+<h3 id="97-skystack-dashboard">9.7 SkyStack dashboard</h3>
+<p>Build the planned &quot;Plan&quot; page with the same module: a form, then <code>plan_from_wizard(...)</code> (or build <code>Plan(...)</code> directly), then <code>write_plan(plan, PLANS_DIR)</code>. If owner approval is required, write the plan into an approval queue first and call <code>write_plan</code> only once it's approved. The dashboard can tail the same <code>*.status.jsonl</code> files.</p>
+<hr>
+<h2 id="10-failure-behaviour">10. Failure behaviour</h2>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No plan for tonight after the sync wait</td>
+<td><em>Load Plan</em> fails, the sequence aborts, and <code>plan_missing</code> is reported</td>
+</tr>
+<tr>
+<td>Two plans for the same night</td>
+<td>Refused by <code>write_plan</code>, and <em>Load Plan</em> fails if one arrives anyway</td>
+</tr>
+<tr>
+<td>Plan dated for another night</td>
+<td><em>Load Plan</em> fails (protects against a stale file)</td>
+</tr>
+<tr>
+<td>Filter not in the NINA profile</td>
+<td>Rejected by the bot (if <code>KNOWN_FILTERS</code> is up to date), and <em>Load Plan</em> fails</td>
+</tr>
+<tr>
+<td>Different rotations, no rotator</td>
+<td>Warned at creation and at dusk; flats only for the final orientation</td>
+</tr>
+<tr>
+<td>Target never got a frame (clouds, altitude)</td>
+<td>No flats taken for it</td>
+</tr>
+<tr>
+<td>Weather interruption mid-target</td>
+<td>&quot;When Safe&quot; loops and resumes at the interrupted target, with no rebuild</td>
+</tr>
+<tr>
+<td>Trained flat missing for a spec</td>
+<td>NINA's Trained Flat Exposure errors on that item; the others continue</td>
+</tr>
+<tr>
+<td>Status file / webhook fails</td>
+<td>Logged only; imaging is never affected</td>
+</tr>
+<tr>
+<td>Sequence aborted before Session Complete</td>
+<td>No manifest; SkyStack reports the plan as overdue once, and nothing runs automatically</td>
+</tr>
+<tr>
+<td>Frames still syncing</td>
+<td>SkyStack waits for every listed frame, and for no new files for <code>settle_minutes</code></td>
+</tr>
+<tr>
+<td>Frames never arrive</td>
+<td>After <code>max_wait_hours</code> SkyStack runs with what arrived and says what was short</td>
+</tr>
+<tr>
+<td>A pipeline job fails</td>
+<td>The chain stops and the remaining targets aren't started; Discord gets the job id</td>
+</tr>
+<tr>
+<td>Manifest written again (re-run)</td>
+<td>Handled again as a new session</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="first-build-checklist">First build checklist</h2>
+<p>The Core layer is tested. The NINA layer still needs one pass in Visual Studio against the real <code>NINA.Plugin</code> package. Search for <code>VERIFY</code>:</p>
+<ul>
+<li><code>ExportMetadata(&quot;Icon&quot;, …)</code> keys: use any SVG key from NINA's resources.</li>
+<li><code>SequenceEntityStatus.DISABLED</code>: the status NINA 3 uses for &quot;Disable&quot;.</li>
+<li><code>SequenceEntityFailedException</code> namespace (<code>NINA.Core.Model</code>).</li>
+<li><code>ISequenceContainer.Insert(int, item)</code>: if it's missing, use <code>Add()</code> and accept that items go at the end.</li>
+<li><code>WaitForTime</code> / <code>TimeCondition</code>: the <code>Hours</code>/<code>Minutes</code> setters, and the prototype must use the plain <em>Time</em> provider.</li>
+<li><code>RotatorInfo.MechanicalPosition</code>, <code>MoveRotatorMechanical.MechanicalPosition</code>.</li>
+<li>Trained Flat Exposure: confirm it reads the trained brightness and exposure at run time, from the gain and binning set on its inner TakeExposure.</li>
+<li><code>File.Move(tmp, final, overwrite: true)</code> in Session Complete: fine on NTFS. If Dropbox briefly locks the target, add a retry.</li>
+<li>Container views: if <em>SkyShare Targets/Flats</em> render blank, add a DataTemplate (see the comment in <code>DataTemplates.xaml</code>).</li>
+</ul>
+<p><strong>Target Scheduler</strong> and <strong>Advanced API</strong> are open-source NINA plugins and good references for each of these. Both build and modify sequencer objects at run time.</p>
+<p>Suggested first test: use NINA's simulator profile, a plan with two short targets (10 s exposures) whose <code>end</code> times are a few minutes apart, and the flat panel simulator.</p>
+<hr>
+<h2 id="roadmap">Roadmap</h2>
+<ul>
+<li><strong>Calibration-only nights:</strong> add <code>&quot;kind&quot;: &quot;calibration&quot;</code> in schema v2 (darks, or flats for a given orientation, with no targets), plus a <code>SkyShare Darks</code> container.</li>
+<li><strong>Mosaics:</strong> add <code>&quot;panels&quot;</code> to a target and expand them into one generated block per panel (port the Framing Assistant maths).</li>
+<li><strong>Dashboard Plan page</strong> with an FoV preview (reuse the bot's <code>generate_fov_image</code>) and an altitude and time-window check before submitting.</li>
+<li><strong>Live state:</strong> if you later want &quot;what's running now&quot; in the dashboard, read it from the Advanced API (<code>/v2/api/sequence/json</code>) over Tailscale, alongside the status file.</li>
+</ul>
+
+            <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+            
+        </body>
+        </html>

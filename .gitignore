@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# .NET build output and IDE state
+bin/
+obj/
+.vs/
+*.user
+*.suo

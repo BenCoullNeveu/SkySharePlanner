@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    NINA plugin. Windows-only (WPF).
+
+    NINA VERSION: this targets the NINA 3.2 release (net8.0-windows, NINA.Plugin 3.2.0.9001).
+    If you run NINA 3.3 (nightly, .NET 10), the easiest path is to generate a fresh
+    project with the official template and drop these source files into it:
+        dotnet new install NINA.Plugin.Templates
+        dotnet new nina-plugin -n SkyShare.Planner
+    then copy Properties/, Runtime/, Sequencer/, Resources/ and the Core <Compile> link below.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <RootNamespace>SkyShare.Planner</RootNamespace>
+    <AssemblyName>SkyShare.Planner</AssemblyName>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- NINA plugins live here; 3.0.0 is the folder for every NINA 3.x -->
+    <NinaPluginDir>$(LOCALAPPDATA)\NINA\Plugins\3.0.0\SkyShare Planner</NinaPluginDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Provided by NINA at runtime: never copy NINA assemblies into the plugin folder -->
+    <PackageReference Include="NINA.Plugin" Version="3.2.0.9001">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure logic compiled straight in: one DLL to deploy, same code the tests cover -->
+    <Compile Include="..\SkyShare.Planner.Core\*.cs" Link="Core\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <Target Name="DeployToNina" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' And '$(OS)' == 'Windows_NT'">
+    <MakeDir Directories="$(NinaPluginDir)" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(NinaPluginDir)" />
+    <Message Importance="high" Text="SkyShare Planner copied to $(NinaPluginDir) - restart NINA to load it." />
+  </Target>
+</Project>
