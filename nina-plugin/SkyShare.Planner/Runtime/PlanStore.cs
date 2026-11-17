@@ -21,21 +21,69 @@ namespace SkyShare.Planner.Runtime {
         private static readonly Dictionary<int, double> MechanicalByIndex = new();
         private static readonly List<(TrainedFlatExposure item, FlatSpec spec, double rotation)> FlatItems = new();
         private static readonly List<string> FlatsSkipped = new();
+        private static readonly List<(int index, TakeManyExposures item)> DarkItems = new();
+        // Saved light frames per target index, per filter (from NINA's ImageSaved event).
+        private static readonly Dictionary<int, Dictionary<string, int>> LightsByTarget = new();
+        private static readonly Dictionary<int, DateTime> ExposuresStartedAt = new();
+        private static readonly HashSet<int> LimitReported = new();
 
         public static NightPlan? Plan { get; private set; }
         public static string? PlanPath { get; private set; }
         public static DateTime LoadedAt { get; private set; }
 
-        public static void Set(NightPlan plan, string path) {
+        /// <summary>Site settings from "SkyShare: Load Plan", used when generating blocks.</summary>
+        public static BuildOptions Options { get; private set; } = new();
+
+        public static void Set(NightPlan plan, string path, BuildOptions options) {
             lock (Gate) {
                 Plan = plan;
                 PlanPath = path;
+                Options = options;
                 LoadedAt = DateTime.Now;
                 TargetIndexByBlock.Clear();
                 MechanicalByIndex.Clear();
                 FlatItems.Clear();
                 FlatsSkipped.Clear();
+                DarkItems.Clear();
+                LightsByTarget.Clear();
+                ExposuresStartedAt.Clear();
+                LimitReported.Clear();
             }
+        }
+
+        // --- frames, timing and limits per target ---------------------------
+
+        public static int? TargetIndex(string targetName) {
+            var plan = Plan;
+            if (plan is null) return null;
+            var i = plan.Targets.FindIndex(t => string.Equals(t.Name, targetName, StringComparison.OrdinalIgnoreCase));
+            return i < 0 ? null : i;
+        }
+
+        /// <summary>Called for every saved LIGHT frame. Frames are matched to plan targets by name (names are unique).</summary>
+        public static void RecordLight(string targetName, string filter) {
+            lock (Gate) {
+                if (TargetIndex(targetName) is not { } i) return;
+                if (!LightsByTarget.TryGetValue(i, out var byFilter)) LightsByTarget[i] = byFilter = new(StringComparer.OrdinalIgnoreCase);
+                byFilter[filter] = byFilter.GetValueOrDefault(filter) + 1;
+            }
+        }
+
+        public static int LightsSaved(int index) {
+            lock (Gate) return LightsByTarget.TryGetValue(index, out var f) ? f.Values.Sum() : 0;
+        }
+
+        /// <summary>When this target's exposures began; the first call marks it.</summary>
+        public static DateTime ExposuresStarted(int index) {
+            lock (Gate) {
+                if (!ExposuresStartedAt.TryGetValue(index, out var t)) ExposuresStartedAt[index] = t = DateTime.Now;
+                return t;
+            }
+        }
+
+        /// <summary>True the first time a limit stops this target, so it's reported once.</summary>
+        public static bool FirstLimitReport(int index) {
+            lock (Gate) return LimitReported.Add(index);
         }
 
         public static NightPlan Require() =>
@@ -66,31 +114,57 @@ namespace SkyShare.Planner.Runtime {
 
         /// <summary>
         /// What happened to each target tonight. "Ran" = at least one light frame
-        /// completed (any SmartExposure loop advanced), which is what flats care about.
+        /// was taken, which is what flats care about.
         /// </summary>
         public static IReadOnlyDictionary<int, TargetRunRecord> RunRecords() {
+            var counts = LightCounts();
             lock (Gate) {
                 return TargetIndexByBlock.ToDictionary(
                     kv => kv.Value,
                     kv => new TargetRunRecord(
-                        Ran: SequenceTree.Descendants<SmartExposure>(kv.Key)
-                                .SelectMany(se => se.Conditions.OfType<LoopCondition>())
-                                .Any(lc => lc.CompletedIterations > 0),
+                        Ran: counts.TryGetValue(kv.Value, out var c) && c.Values.Sum() > 0,
                         MechanicalPosition: MechanicalByIndex.TryGetValue(kv.Value, out var m) ? m : null));
             }
         }
-    
-        /// <summary>Frames completed per target per filter (for the session manifest).</summary>
+
+        /// <summary>
+        /// Light frames per target per filter (for the session manifest and flats).
+        /// Uses the saved-frame log; falls back to the Smart Exposure loop counters for
+        /// a target with no logged frames. Those counters reset when a cycle repeats,
+        /// so they undercount in cycle mode, but they still show whether a target ran.
+        /// </summary>
         public static IReadOnlyDictionary<int, IReadOnlyDictionary<string, int>> LightCounts() {
             lock (Gate) {
                 return TargetIndexByBlock.ToDictionary(
                     kv => kv.Value,
-                    kv => (IReadOnlyDictionary<string, int>)SequenceTree.Descendants<SmartExposure>(kv.Key)
-                        .Select(se => (
-                            filter: se.Items.OfType<SwitchFilter>().FirstOrDefault()?.Filter?.Name ?? "?",
-                            done: se.Conditions.OfType<LoopCondition>().Sum(lc => lc.CompletedIterations)))
-                        .GroupBy(x => x.filter, StringComparer.OrdinalIgnoreCase)
-                        .ToDictionary(g => g.Key, g => g.Sum(x => x.done)));
+                    kv => LightsByTarget.TryGetValue(kv.Value, out var logged) && logged.Count > 0
+                        ? (IReadOnlyDictionary<string, int>)new Dictionary<string, int>(logged, StringComparer.OrdinalIgnoreCase)
+                        : SequenceTree.Descendants<SmartExposure>(kv.Key)
+                            .Select(se => (
+                                filter: se.Items.OfType<SwitchFilter>().FirstOrDefault()?.Filter?.Name ?? "?",
+                                done: se.Conditions.OfType<LoopCondition>().Sum(lc => lc.CompletedIterations)))
+                            .GroupBy(x => x.filter, StringComparer.OrdinalIgnoreCase)
+                            .ToDictionary(g => g.Key, g => g.Sum(x => x.done), StringComparer.OrdinalIgnoreCase));
+            }
+        }
+
+        // --- darks generated by SkyShareDarks -------------------------------
+
+        public static void SetDarks(IEnumerable<(int index, TakeManyExposures item)> items) {
+            lock (Gate) { DarkItems.Clear(); DarkItems.AddRange(items); }
+        }
+
+        /// <summary>
+        /// Frames per plan dark set, in plan order. Uses Take Exposure's ExposureCount,
+        /// which (unlike the loop counter) isn't reset when a repeat round starts again.
+        /// </summary>
+        public static IReadOnlyList<DarkSetResult> DarkResults() {
+            var plan = Plan;
+            if (plan is null) return Array.Empty<DarkSetResult>();
+            lock (Gate) {
+                return plan.Darks.Sets.Select((set, i) => new DarkSetResult(set,
+                    DarkItems.Where(d => d.index == i)
+                        .Sum(d => d.item.Items.OfType<TakeExposure>().Sum(t => t.ExposureCount)))).ToList();
             }
         }
 

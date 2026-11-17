@@ -21,7 +21,7 @@ namespace SkyShare.Planner.Sequencer {
     /// <summary>
     /// First instruction of the night. Finds "&lt;night&gt;_*.plan.json" in the plans
     /// folder, validates it against the live NINA profile, and stores it for the
-    /// SkyShare Targets / Flats containers.
+    /// SkyShare Targets / Flats / Darks containers.
     ///
     /// Fails the instruction (and therefore whatever error behaviour you set on it -
     /// typically "Abort") if there is no valid plan, so the scope never images a
@@ -48,6 +48,9 @@ namespace SkyShare.Planner.Sequencer {
             PlansDirectory = copyMe.PlansDirectory;
             RolloverHour = copyMe.RolloverHour;
             WaitForPlanMinutes = copyMe.WaitForPlanMinutes;
+            MinAltitude = copyMe.MinAltitude;
+            AutofocusAtStart = copyMe.AutofocusAtStart;
+            DitherEvery = copyMe.DitherEvery;
         }
 
         // ---- settings (saved in the template) --------------------------------
@@ -66,6 +69,25 @@ namespace SkyShare.Planner.Sequencer {
         /// <summary>If the plan hasn't synced yet, keep checking this long before failing.</summary>
         [JsonProperty]
         public int WaitForPlanMinutes { get => waitForPlanMinutes; set { waitForPlanMinutes = Math.Max(0, value); RaisePropertyChanged(); } }
+
+        // How generated target blocks run (see TargetBuilder).
+
+        private double minAltitude = 20;
+        /// <summary>A target's exposures stop when it drops below this altitude (degrees).</summary>
+        [JsonProperty]
+        public double MinAltitude { get => minAltitude; set { minAltitude = Math.Clamp(value, 0, 90); RaisePropertyChanged(); } }
+
+        private bool autofocusAtStart = true;
+        /// <summary>Run autofocus after centering each target.</summary>
+        [JsonProperty]
+        public bool AutofocusAtStart { get => autofocusAtStart; set { autofocusAtStart = value; RaisePropertyChanged(); } }
+
+        private int ditherEvery = 1;
+        /// <summary>Dither after this many frames of each filter. 0 = never.</summary>
+        [JsonProperty]
+        public int DitherEvery { get => ditherEvery; set { ditherEvery = Math.Max(0, value); RaisePropertyChanged(); } }
+
+        private BuildOptions Options => new(MinAltitude, AutofocusAtStart, DitherEvery);
 
         // ---- shown in the UI after running ------------------------------------
 
@@ -104,28 +126,55 @@ namespace SkyShare.Planner.Sequencer {
             var hasRotator = rotatorMediator.GetInfo().Connected;
             var issues = PlanValidator.Validate(plan, filters, hasRotator, night);
 
-            foreach (var w in issues.Where(i => i.Severity == Severity.Warning)) {
-                Logger.Warning($"[SkyShare] {w.Message}");
-                Notification.ShowWarning($"SkyShare plan: {w.Message}");
-            }
+            foreach (var w in issues.Where(i => i.Severity == Severity.Warning))
+                StatusReporter.Warn("plan_warning", w.Message);
             var errors = issues.Where(i => i.Severity == Severity.Error).ToList();
             if (errors.Count > 0) {
-                PlanStore.Set(plan, path); // so the status file lands next to the bad plan
+                PlanStore.Set(plan, path, Options); // so the status file lands next to the bad plan
                 Fail("plan_invalid", $"{Path.GetFileName(path)}:\n- " + string.Join("\n- ", errors.Select(e => e.Message)));
             }
 
-            PlanStore.Set(plan, path);
-            LoadedSummary = $"{Path.GetFileName(path)} - {plan.Targets.Count} target(s): " +
-                            string.Join(", ", plan.Targets.Select(t => t.Name));
+            PlanStore.Set(plan, path, Options);
+            LoadedSummary = $"{Path.GetFileName(path)} - {plan.Targets.Count} target(s)" +
+                            (plan.Targets.Count > 0 ? ": " + string.Join(", ", plan.Targets.Select(t => t.Name)) : "") +
+                            (plan.Darks.Sets.Count > 0 ? "; " + DarkPlanner.Describe(plan.Darks) : "");
+
+            // Fill in SkyShare Targets and a flats preview now, so tonight's blocks are
+            // visible from the start. The flats preview assumes every target runs; the
+            // real flats replace it when SkyShare Flats runs, after imaging.
+            var root = SequenceTree.Root(this);
+            var targetContainers = root is null
+                ? new List<SkyShareTargets>()
+                : SequenceTree.Descendants<SkyShareTargets>(root).ToList();
+            foreach (var targets in targetContainers) await targets.EnsureBuilt(); // reports + rethrows on failure
+            if (targetContainers.Count == 0 && plan.Targets.Count > 0)
+                StatusReporter.Warn("targets_missing", "no 'SkyShare Targets' container found in this sequence; nothing will be imaged from the plan.");
+
+            var darkContainers = root is null
+                ? new List<SkyShareDarks>()
+                : SequenceTree.Descendants<SkyShareDarks>(root).ToList();
+            foreach (var darks in darkContainers) await darks.EnsureBuilt(); // reports + rethrows on failure
+            if (darkContainers.Count == 0 && plan.Darks.Sets.Count > 0)
+                StatusReporter.Warn("darks_missing", "the plan has darks but no 'SkyShare Darks' container is in this sequence; no darks will be taken.");
+            if (darkContainers.Count > 1)
+                StatusReporter.Warn("darks_twice", $"{darkContainers.Count} 'SkyShare Darks' containers in this sequence; each will take the plan's darks.");
+
+            if (root != null)
+                foreach (var flats in SequenceTree.Descendants<SkyShareFlats>(root)) {
+                    // Only a preview: a failure here must not stop the night.
+                    try { await flats.BuildPreview(); }
+                    catch (Exception e) { StatusReporter.Warn("flats_preview_failed", $"could not preview flats: {e.Message}"); }
+                }
             StatusReporter.Report("plan_loaded", LoadedSummary, new {
                 night = plan.Night, client = plan.Client,
                 targets = plan.Targets.Select(t => t.Name),
+                darks = plan.Darks.Sets.Count,
                 warnings = issues.Where(i => i.Severity == Severity.Warning).Select(i => i.Message),
             });
         }
 
         private static void Fail(string @event, string message) {
-            StatusReporter.Report(@event, message);
+            StatusReporter.Error(@event, message);
             throw new SequenceEntityFailedException(message); // VERIFY namespace: NINA.Core.Model
         }
 

@@ -10,7 +10,8 @@
 
       The two containers (SkyShareTargets, SkyShareFlats) derive from SequentialContainer.
       WPF resolves implicit DataTemplates up the type hierarchy, so they reuse NINA's
-      built-in Sequential Instruction Set view - no template needed here.
+      built-in Sequential Instruction Set view - no template needed here. Their settings
+      live on Load Plan, so the containers don't need a custom view.
       VERIFY on first load: if they render blank, copy NINA's SequentialContainer
       DataTemplate (or Target Scheduler's container template) and add it below.
     -->
@@ -32,6 +33,18 @@
                                  Text="{Binding WaitForPlanMinutes}" />
                         <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min" />
                     </StackPanel>
+                    <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="Targets: stop below" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding MinAltitude}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="° altitude" />
+                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Autofocus at start"
+                                  IsChecked="{Binding AutofocusAtStart}" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Dither every" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding DitherEvery}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="frames (0 = off)" />
+                    </StackPanel>
                     <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"
                                Text="{Binding LoadedSummary}" />
                 </StackPanel>
@@ -44,6 +57,14 @@
             <nina:SequenceBlockView.SequenceItemContent>
                 <TextBlock VerticalAlignment="Center" Opacity="0.7"
                            Text="Remembers rotator position for this target's flats" />
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type local:TargetLimits}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <TextBlock VerticalAlignment="Center" Text="{Binding Summary}" />
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>
     </DataTemplate>

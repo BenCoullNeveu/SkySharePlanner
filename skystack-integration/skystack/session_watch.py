@@ -234,7 +234,7 @@ def poll(
             continue
 
         if m.get("outcome") == "nothing_captured" or not m.get("actions"):
-            why = "nothing captured" if m.get("outcome") == "nothing_captured" else "processing disabled in plan"
+            why = ("nothing captured" if m.get("outcome") == "nothing_captured" else f"darks only ({(m.get('darks') or {}).get('frames_total', 0)} frames)" if not any(t.get("ran") for t in m.get("targets", [])) else "processing disabled in plan")
             update(path.name, {**entry, "status": "done", "jobs": [], "note": why},
                    f"🌙 {label}: {why} - no pipeline job.")
             continue

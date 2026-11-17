@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "night": "2026-11-12",
+  "client": "Calibration",
+  "created_by": "manual",
+  "created_utc": "2026-11-08T22:00:00Z",
+  "targets": [],
+  "flats": { "enabled": false, "count": 30 },
+  "darks": {
+    "order": "fixed_first",
+    "until": "astronomical_dawn",
+    "temperature": -10,
+    "sets": [
+      { "exposure": 10, "count": 5, "gain": 100 },
+      { "exposure": 5, "count": 5, "gain": 0 },
+      { "exposure": 20, "count": 1, "gain": 100, "repeat": true },
+      { "exposure": 15, "count": 2, "gain": 0, "repeat": true }
+    ]
+  },
+  "processing": { "enabled": false, "triage": null, "postprocess": null, "export": null }
+}

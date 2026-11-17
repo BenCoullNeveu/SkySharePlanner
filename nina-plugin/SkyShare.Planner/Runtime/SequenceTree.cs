@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.Composition;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
-using NINA.Core.Enum;
+using System.Windows.Media;
+using NINA.Core.Locale;
+using NINA.Sequencer;
 using NINA.Sequencer.Conditions;
 using NINA.Sequencer.Container;
 using NINA.Sequencer.SequenceItem;
+using NINA.Sequencer.Trigger;
 
 namespace SkyShare.Planner.Runtime {
 
@@ -15,7 +19,6 @@ namespace SkyShare.Planner.Runtime {
 
         /// <summary>Marker on every block the plugin generates, so re-runs can remove them.</summary>
         public const string GeneratedPrefix = "▶ ";
-        public const string PrototypeName = "PROTOTYPE";
 
         public static IEnumerable<T> Descendants<T>(ISequenceContainer root) where T : class {
             foreach (var item in root.Items) {
@@ -32,47 +35,45 @@ namespace SkyShare.Planner.Runtime {
         public static IEnumerable<ISequenceCondition> Conditions(ISequenceContainer container) =>
             container is IConditionable c ? c.Conditions : Enumerable.Empty<ISequenceCondition>();
 
-        /// <summary>
-        /// Inserts an item at a position. ISequenceContainer only has Add(); SequenceContainer
-        /// has InsertIntoSequenceBlocks, which also wires up the item's Parent.
-        /// </summary>
-        public static void Insert(ISequenceContainer container, int index, ISequenceItem item) {
-            if (container is SequenceContainer sc) sc.InsertIntoSequenceBlocks(index, item);
-            else container.Add(item);
+        /// <summary>The top of the sequence an item belongs to, or null if it isn't attached.</summary>
+        public static ISequenceContainer? Root(ISequenceItem item) {
+            var p = item.Parent;
+            while (p?.Parent != null) p = p.Parent;
+            return p;
         }
-
-        public static T? FirstDescendant<T>(ISequenceContainer root) where T : class =>
-            Descendants<T>(root).FirstOrDefault();
-
-        public static ISequenceContainer? FindContainer(ISequenceContainer root, string name) =>
-            Descendants<ISequenceContainer>(root).FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
-        /// The PROTOTYPE child the user designed in the template. It must be Disabled
-        /// (right-click > Disable) so it never runs itself; we enforce that here too.
+        /// Gives generated items the name, icon, category and description NINA shows in
+        /// the sequencer. NINA normally stamps these from each class's [ExportMetadata]
+        /// when it creates an instruction; items the plugin constructs directly (and the
+        /// children their constructors create) skip that step and show up blank.
+        /// Names the plugin set on purpose are kept. Call on the UI thread.
         /// </summary>
-        public static T RequirePrototype<T>(ISequenceContainer owner) where T : class, ISequenceItem {
-            var proto = owner.Items.OfType<T>()
-                .FirstOrDefault(i => string.Equals(i.Name, PrototypeName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException(
-                    $"'{owner.Name}' needs a child {typeof(T).Name} named '{PrototypeName}'.");
-            SetStatus(proto, SequenceEntityStatus.DISABLED); // VERIFY: NINA 3 "Disable" = this status
-            return proto;
+        public static void ApplyNinaMetadata(ISequenceEntity entity) {
+            var meta = entity.GetType()
+                .GetCustomAttributes(typeof(ExportMetadataAttribute), inherit: false)
+                .Cast<ExportMetadataAttribute>()
+                .Where(a => a.Value is string)
+                .GroupBy(a => a.Name)
+                .ToDictionary(g => g.Key, g => (string)g.First().Value!);
+
+            if (string.IsNullOrEmpty(entity.Name) && meta.TryGetValue("Name", out var name)) entity.Name = Label(name);
+            if (string.IsNullOrEmpty(entity.Description) && meta.TryGetValue("Description", out var desc)) entity.Description = Label(desc);
+            if (string.IsNullOrEmpty(entity.Category) && meta.TryGetValue("Category", out var cat)) entity.Category = Label(cat);
+            if (entity.Icon is null && meta.TryGetValue("Icon", out var icon))
+                entity.Icon = Application.Current?.TryFindResource(icon) as GeometryGroup;
+
+            if (entity is ISequenceContainer container)
+                foreach (var item in container.Items) ApplyNinaMetadata(item);
+            if (entity is IConditionable conditionable)
+                foreach (var condition in conditionable.Conditions) ApplyNinaMetadata(condition);
+            if (entity is ITriggerable triggerable)
+                foreach (var trigger in triggerable.Triggers) ApplyNinaMetadata(trigger);
         }
 
-        /// <summary>Deep-clones a prototype into a fresh, runnable copy.</summary>
-        public static T CloneFresh<T>(T prototype, string name) where T : class, ISequenceItem {
-            var copy = (T)prototype.Clone();
-            copy.Name = GeneratedPrefix + name;
-            SetStatus(copy, SequenceEntityStatus.CREATED);
-            copy.ResetProgress();
-            return copy;
-        }
-
-        // ISequenceItem only exposes a getter; the concrete base class has the setter.
-        public static void SetStatus(ISequenceItem item, SequenceEntityStatus status) {
-            if (item is SequenceItem si) si.Status = status;
-        }
+        // NINA's own metadata holds translation keys ("Lbl_..."); plugin metadata is plain text.
+        private static string Label(string keyOrText) =>
+            keyOrText.StartsWith("Lbl_", StringComparison.Ordinal) ? Loc.Instance[keyOrText] : keyOrText;
 
         public static void RemoveGenerated(ISequenceContainer owner) {
             foreach (var old in owner.Items.Where(i => i.Name?.StartsWith(GeneratedPrefix) == true).ToList())

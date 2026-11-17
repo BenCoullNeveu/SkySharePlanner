@@ -104,14 +104,14 @@ sequenceDiagram
     end
     LP-->>X: status: plan_loaded
     N->>TG: When Safe
-    TG->>TG: clone PROTOTYPE once per target, set coords / PA / times / exposures
+    TG->>TG: generate one block per target: coords / PA / times / exposures
     loop each target in plan order
         TG->>TG: wait for start, slew, center, (Record Rotation), Smart Exposures until end
     end
     TG-->>X: status: targets_done
     N->>FL: End area
     FL->>FL: FlatPlanner: which targets ran? group by orientation, de-dupe specs
-    FL->>FL: clone flats PROTOTYPE per group (rotate if possible)
+    FL->>FL: generate one flats block per group (rotate if possible)
     FL-->>X: status: flats_built / flats_done
     N->>SC: last item
     SC->>X: 2026-11-07_Jane.session.json (captured + actions)
@@ -122,61 +122,160 @@ sequenceDiagram
     SS-->>U: Discord: "data is in, processing…", "all jobs finished"
 ```
 
+**When blocks appear:** target blocks are generated as soon as *Load Plan* succeeds, so tonight's targets are visible in the sequencer from the Start area onwards. (If *Load Plan* can't find a *SkyShare Targets* container, the container builds itself when it runs.) *Load Plan* also fills *SkyShare Flats* with a **preview** that assumes every target runs. Rotator moves to other orientations show as *"set after imaging"* and are disabled, because the rotator position is only recorded while imaging. When *SkyShare Flats* runs, it replaces the preview with the real flats: only targets that got frames, with the recorded rotator positions.
+
+**Problems show up in NINA.** Warnings (skipped flats, plan warnings) and errors (missing or invalid plan, a block that couldn't be built, a manifest that couldn't be written) go to NINA's log at that level and pop up as a NINA notification. They are also written to the status file with `"level": "warning"` or `"error"`.
+
 **Weather loops:** if "When Safe" loops after an unsafe interruption, `SkyShare Targets` does **not** rebuild. Finished targets keep their *finished* status, so NINA resumes at the interrupted target.
 
 ---
 
 ## 3. Template contract
 
-The plugin builds from **prototypes** that you design once, in the NINA UI, inside the template. A prototype decides how a target is run: slew, center, autofocus triggers, guiding, dithering, altitude limits. The plan only supplies the values. A prototype is a normal container named `PROTOTYPE` and set to **Disabled** (right-click > Disable). It never runs itself; it is only cloned.
+The plugin **generates** each target block and each flats block itself, from the plan. You don't build or maintain anything inside *SkyShare Targets* or *SkyShare Flats*; leave them empty.
+
+Everything about how *your* observatory runs stays in the template, in the containers around them: startup, safety, meridian flip, guiding recovery, autofocus triggers, Discord alerts, panel and park steps. Triggers on *When Safe* (meridian flip, AF after HFR increase, Restore Guiding, …) apply to the generated targets as usual.
 
 ```text
 Night template (saved once; replaces TemplateSequence.json)
 │
 ├─ Start
 │   ├─ SkyShare: Load Plan            ← NEW, first instruction (Error behaviour: Abort)
+│   │                                    also holds the target settings below
 │   └─ STARTUP …                       (unchanged: cool camera, unpark, …)
 │
 ├─ Targets
 │   └─ IMAGING INSTRUCTIONS
-│       ├─ When Safe
-│       │   └─ SkyShare Targets        ← NEW, replaces "TEMPLATE DSO"
-│       │       ├─ PROTOTYPE  (Deep Sky Object container, DISABLED)
-│       │       │   ├─ Wait for Time           ← optional: plan "start" (Time provider, not Dusk)
-│       │       │   ├─ Slew / Center and Rotate
-│       │       │   ├─ SkyShare: Record Rotation   ← optional, needed for multi-orientation flats
-│       │       │   ├─ triggers: AF after filter change, Center after drift, …
-│       │       │   └─ EXPOSURES
-│       │       │       ├─ cond: Loop until Time   ← optional: plan "end"
-│       │       │       ├─ cond: Altitude (HasDsoParent)
-│       │       │       ├─ Smart Exposure          ← exactly one; cloned per plan exposure
-│       │       │       └─ Dither                  (anything after stays after)
-│       │       ├─ ▶ NGC 7635      (generated at run time)
-│       │       └─ ▶ M 31          (generated at run time)
+│       ├─ When Safe                   (unchanged: safety condition + your triggers)
+│       │   └─ SkyShare Targets        ← NEW, replaces "TEMPLATE DSO"; leave empty
+│       │       ├─ ▶ NGC 7635          (generated at run time, see below)
+│       │       └─ ▶ M 31
 │       └─ When Unsafe …
 │
 └─ End
     └─ END OF SEQUENCE
-        ├─ FLATS
-        │   └─ SkyShare Flats          ← NEW, replaces "FLAT INSTRUCTIONS"
-        │       ├─ PROTOTYPE  (Sequential, DISABLED)
-        │       │   ├─ Move Rotator Mechanical  ← optional; set or removed per group
-        │       │   └─ Trained Flat Exposure    ← exactly one; cloned per flat spec
+        ├─ (your cover / park steps)
+        ├─ SkyShare Darks              ← NEW, optional; leave empty. Does nothing unless the plan has darks
+        │   ├─ ▶ DARKS (fixed)
+        │   └─ ▶ DARKS (until astronomical dawn)
+        ├─ FLATS                       (unchanged: panel, wait for sunrise, alert …)
+        │   └─ SkyShare Flats          ← NEW, replaces "FLAT INSTRUCTIONS"; leave empty
         │       ├─ ▶ Flats @ 35° - M 31       (generated: current orientation first)
         │       └─ ▶ Flats @ 0° - NGC 7635    (generated, only if a rotator exists)
         ├─ END …
         └─ SkyShare: Session Complete  ← NEW, very last item: writes the manifest for SkyStack
 ```
 
+Each generated target block looks like this:
+
+```text
+▶ M 31  (Deep Sky Object container: name, J2000 coords, position angle)
+├─ Wait for Time                   ← only if the plan has "start"
+├─ Center and Rotate               (plain Center if no rotator is connected)
+├─ SkyShare: Record Rotation       (no-op without a rotator)
+├─ Run Autofocus                   ← if "Autofocus at start" is ticked
+└─ EXPOSURES
+    ├─ cond: Loop 1×               ← by-filter mode only: run the exposure list once
+    ├─ cond: Altitude below N°     ← "stop below" setting (default 20°)
+    ├─ cond: Loop until Time       ← only if the plan has "end"
+    ├─ cond: SkyShare: Target Limits ← only if the plan has max_frames / max_hours / next_target_altitude
+    ├─ Smart Exposure per plan exposure
+    └─ Dither                      ← cycle mode only: once per cycle
+```
+
+**Two ways to shoot a target** (plan field `cycle`):
+
+| | By filter (`"cycle": false`, default) | Cycle (`"cycle": true`) |
+|---|---|---|
+| `exposures[].count` | total frames for that filter | frames of that filter **per cycle** |
+| Order | all L, then all R, … | L L L R G B, dither, L L L R G B, dither, … |
+| Dithering | every N frames (*Dither every* on Load Plan) | once at the end of each cycle |
+| Ends when | the list is done, or a limit is hit | a limit is hit |
+
+For LRGB at 3 L per R, G and B, use `"cycle": true` with counts L 3, R 1, G 1, B 1. NINA applies your profile's filter focus offsets on every filter change, so cycling doesn't need a refocus each time.
+
+**Limits** (any target, either mode; whichever comes first stops the target):
+
+| Plan field | Stops the target when… |
+|---|---|
+| `end` | the clock reaches this local time (HH:MM) |
+| `max_frames` | this many light frames have been saved for it |
+| `max_hours` | this many hours have passed since its first exposure (wall clock, includes weather pauses) |
+| `next_target_altitude` | the **next** target in the plan is above this altitude. If it's already above it when this target starts, this target stops right away. Not allowed on the last target. |
+| altitude limit | the target itself drops below *stop below* on Load Plan |
+
+Limits are checked between frames, so a target can finish the frame in progress before stopping. Frame counts come from the frames NINA actually saves, and the session manifest uses the same counts. A cycle-mode target with no limits keeps imaging until it sets or dawn, and later targets may never start. Load Plan warns about that.
+
+And each flats block:
+
+```text
+▶ Flats @ 35° - M 31
+├─ Move Rotator Mechanical         ← only if a rotator position was recorded
+└─ Trained Flat Exposure per filter / gain / binning (flats.count frames, panel kept closed)
+```
+
 | Plan field | Written to |
 |---|---|
-| `name`, `ra`, `dec` | DSO container `Target.TargetName`, `Target.InputCoordinates` (J2000). Center and Altitude items with *HasDsoParent* inherit them. |
+| `name`, `ra`, `dec` | DSO container `Target.TargetName`, `Target.InputCoordinates` (J2000). Center and the altitude condition take them from the container. |
 | `rotation` | `Target.PositionAngle`, used by *Center and Rotate* |
-| `start` / `end` | `Wait for Time` / `Loop until Time` in the prototype. Removed if `null`. |
+| `start` / `end` | *Wait for Time* / *Loop until Time* (plain clock time). Left out if `null`. |
 | `exposures[]` | one Smart Exposure per entry: `SwitchFilter.Filter`, `TakeExposure.ExposureTime / Gain / Offset / Binning`, `LoopCondition.Iterations` |
 | `flats.count` | `LoopCondition.Iterations` inside each Trained Flat Exposure |
+| `darks` | see *Darks* below |
+
+Settings on **SkyShare: Load Plan** (saved in the template):
+
+| Setting | Default | Effect |
+|---|---|---|
+| Stop below … ° altitude | 20 | Altitude condition on each target's `EXPOSURES` |
+| Autofocus at start | on | *Run Autofocus* after centering each target |
+| Dither every … frames | 1 | `AfterExposures` on each Smart Exposure's dither trigger; 0 removes it. Cycle-mode targets ignore this and dither once per cycle. |
 
 Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the saved template never accumulates old targets.
+
+### Darks
+
+A plan can carry a `darks` section. **SkyShare Darks** builds it at Load Plan, like the targets:
+
+```text
+SkyShare Darks
+├─ ▶ Cool Camera to -10 °C               ← only if darks.temperature
+├─ ▶ DARKS (fixed)                        cond: Loop 1×
+│   ├─ Take Many Exposures  300s ×20 (DARK)
+│   └─ Take Many Exposures  60s ×30
+└─ ▶ DARKS (until astronomical dawn)      cond: Loop until Time (Dawn)
+    ├─ Take Many Exposures  600s ×1 per round
+    └─ Take Many Exposures  120s ×2 per round
+```
+
+```json
+"darks": {
+  "order": "fixed_first",
+  "until": "astronomical_dawn",
+  "temperature": -10,
+  "sets": [
+    { "exposure": 300, "count": 20, "gain": 100 },
+    { "exposure": 600, "count": 1,  "gain": 100, "repeat": true },
+    { "exposure": 60,  "count": 30, "gain": 0 },
+    { "exposure": 120, "count": 2,  "gain": 0,   "repeat": true }
+  ]
+}
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `sets[].repeat` | `false` | `false`: a **fixed** set, exactly `count` frames. `true`: a **repeating** set, `count` frames per round. |
+| `order` | `fixed_first` | `fixed_first`: all fixed sets, then rounds of the repeating sets until `until`. `repeat_first`: rounds first, then the fixed sets (they're taken after `until`). |
+| `until` | `astronomical_dawn` | When the rounds stop: `astronomical_dawn`, `nautical_dawn`, `civil_dawn`, `sunrise`, or a local `HH:MM`. Checked between frames. |
+| `temperature` | `null` | Cool the camera to this set point first. `null` leaves the cooler as STARTUP set it. |
+| `exposure`, `gain`, `offset`, `binning` | | As for lights. Darks don't change filter. |
+
+In the example, the plugin takes 20 × 300 s and 30 × 60 s first. It then alternates 1 × 600 s and 2 × 120 s until astronomical dawn. If dawn is reached during the fixed sets, the rounds are skipped.
+
+* **Calibration-only nights:** a plan with `"targets": []` and a `darks` section is valid. *SkyShare Targets* then has nothing to do. Because the template's own conditions around it (*When Safe*, loops, waits) still run, a template that waits for safe conditions or for dawn there will delay the darks. If that's a problem, keep a small calibration template: Load Plan, STARTUP, cover/park, SkyShare Darks, Session Complete.
+* **The camera must be covered.** The plugin doesn't close a cover or park the mount; put your own steps before SkyShare Darks.
+* **Frame counts** in the session manifest come from each Take Exposure's own counter, which doesn't reset between rounds, so repeating sets are counted correctly.
+* Dark frames go through NINA's normal file pattern with image type `DARK`. Outside a target, `$$TARGETNAME$$` is empty.
 
 ---
 
@@ -186,16 +285,12 @@ Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the 
 flowchart TD
     A[SkyShare Targets starts] --> B{Plan already built<br/>for this Load Plan?}
     B -- yes, weather loop --> R[Run children:<br/>finished ones are skipped]
-    B -- no --> C[Find disabled PROTOTYPE]
-    C --> D[Remove old ▶ blocks]
+    B -- no --> D[Remove old ▶ blocks]
     D --> E[For each plan target, in order]
-    E --> F[Clone PROTOTYPE]
-    F --> G[Set name, J2000 coords, position angle]
-    G --> H{start / end given?}
-    H -- yes --> I[Set Wait for Time / Loop until Time]
-    H -- no --> J[Remove those items]
-    I --> K
-    J --> K[Clone Smart Exposure per exposure:<br/>filter from profile, exposure, gain, offset, binning, count]
+    E --> F[New DSO container:<br/>name, J2000 coords, position angle]
+    F --> G[Wait for Time if start,<br/>Center / Center and Rotate,<br/>Record Rotation, Autofocus]
+    G --> H[EXPOSURES: loop once,<br/>altitude limit, Loop until Time if end]
+    H --> K[Smart Exposure per exposure:<br/>filter from profile, exposure, gain, offset, binning, count, dither]
     K --> L[Register block → target index]
     L --> E
     E -- done --> R
@@ -235,7 +330,7 @@ flowchart TD
 
 When the night ends, **SkyShare: Session Complete** writes `<night>_<client>.session.json` next to the plan. It's an atomic write, like the plan. The manifest carries two things:
 
-* **What was captured:** frames per target and filter (counted from the Smart Exposure loops), plus the flat sets taken. SkyStack uses these counts to know when Dropbox has delivered everything.
+* **What was captured:** frames per target and filter, plus the flat sets and dark sets taken (`darks.sets[]` with `planned`, which is `null` for repeating sets, and `frames`). SkyStack uses these counts to know when Dropbox has delivered everything.
 * **What to do with it:** an explicit `actions` list. v1 has one action type, `skystack_run`, which means `run_routine.py run -t <target> -s <night> [--triage …] [--export] [--postprocess]`. The options come from the plan's `processing` block, so the client's reservation decides them. There's one action per target that got frames.
 
 ```json
@@ -249,6 +344,7 @@ When the night ends, **SkyShare: Session Complete** writes `<night>_<client>.ses
       "lights": { "L": 41 }, "lights_total": 41, "planned_total": 120 }
   ],
   "flats": { "frames_total": 150, "sets": [ … ], "skipped": [] },
+  "darks": { "frames_total": 0, "sets": [] },
   "actions": [
     { "type": "skystack_run", "target": "NGC 7635 Jane Doe", "sessions": ["2026-11-07"],
       "triage": "send", "postprocess": null, "export": true },
@@ -327,9 +423,9 @@ File name: `YYYY-MM-DD_<Client>.plan.json`. The date is the **evening the night 
 }
 ```
 
-`processing` is passed through to the session manifest as SkyStack actions (§6). `null` means use SkyStack's config default. Set `"enabled": false` for capture-only nights. Target names are also SkyStack folder names, so they must be unique within a plan.
+`processing` is passed through to the session manifest as SkyStack actions (§6). `null` means use SkyStack's config default. Set `"enabled": false` for capture-only nights. A darks-only night has no targets, so it never queues a SkyStack job, and the watcher reports it as "darks only". Target names are also SkyStack folder names, so they must be unique within a plan.
 
-The full definition is in [`schema/plan.schema.json`](schema/plan.schema.json), and there's a complete example in [`examples/`](examples/). `gain` and `offset` default to `-1`, meaning the camera default. `start` and `end` are local 24-hour times.
+The full definition is in [`schema/plan.schema.json`](schema/plan.schema.json), and there are example plans in [`examples/`](examples/), one per feature (see §8). The newer examples use the NINA simulator's filter names (`Filter 0`–`Filter 3`, `R`, `G`, `B`) and short exposures, so they run quickly on the simulator. `gain` and `offset` default to `-1`, meaning the camera default. `start` and `end` are local 24-hour times.
 
 ---
 
@@ -340,7 +436,12 @@ SkySharePlanner/
 ├─ README.md
 ├─ schema/plan.schema.json            plan contract shared by Python and C#
 ├─ schema/session.schema.json         session manifest contract (NINA → SkyStack)
-├─ examples/2026-11-07_JaneDoe.plan.json
+├─ examples/                          example plans (tests check each one against the schema and validator)
+│  ├─ 2026-11-07_JaneDoe.plan.json      two targets, by filter, start/end times
+│  ├─ 2026-11-09_JohnSmith.plan.json    cycle mode (L×3 R G B), max_frames, next_target_altitude, max_hours
+│  ├─ 2026-11-10_AlexRivera.plan.json   three targets, by filter, end/start hand-off, max_frames + max_hours, flats off
+│  ├─ 2026-11-11_BadPlan.plan.json      deliberately invalid: shows the errors Load Plan reports
+│  └─ 2026-11-12_Calibration.plan.json  darks only: fixed sets, then rounds until astronomical dawn
 ├─ python/
 │  ├─ skyshare_plan.py                model, validate, plan_from_wizard, atomic write_plan, summary
 │  ├─ bot_integration.py              publish_from_bot() + StatusTailer for skysharebot.py
@@ -396,11 +497,10 @@ In the Flat Wizard, train every filter + gain + binning combination clients can 
 
 1. Open your current `TemplateSequence.json` in NINA.
 2. In **Start**, add **SkyShare: Load Plan** as the first item. Set the plans folder to `…\Dropbox\SkyShare Data\Plans` and the error behaviour to **Abort**.
-3. In **When Safe**, add **SkyShare Targets**. Drag your existing `TEMPLATE DSO` into it, rename it `PROTOTYPE` and **Disable** it. Check that it contains:
-   * an `EXPOSURES` container with **exactly one** Smart Exposure (its filter and values don't matter),
-   * optionally *Wait for Time* (Time provider) and a *Loop until Time* condition on `EXPOSURES`,
-   * optionally *SkyShare: Record Rotation* after *Center and Rotate*.
-4. In **FLATS**, add **SkyShare Flats**. Inside it, create a Sequential container named `PROTOTYPE`, **Disable** it, and add **one** Trained Flat Exposure (plus *Move Rotator Mechanical* if you have a rotator). Delete the old `FLAT INSTRUCTIONS` container.
+   On the same item, check the target settings: *stop below* altitude (your old template used 20°), *Autofocus at start*, and *Dither every* N frames.
+3. In **When Safe**, delete `TEMPLATE DSO` and add **SkyShare Targets** in its place. Leave it empty. Keep the triggers on *When Safe*; they apply to the generated targets.
+4. In **FLATS**, delete the old `FLAT INSTRUCTIONS` container and add **SkyShare Flats** in its place. Leave it empty.
+   Optional: add **SkyShare Darks** in the End area, after your cover/park steps (see *Darks* in §3). Leave it empty.
 5. Add **SkyShare: Session Complete** as the **last** item of the End area.
 6. Check NINA's image file pattern (Options > Imaging). It must give `LIGHT/<target>/<$$DATEMINUS12$$>/…`, as described in §6.
 7. Save it as the night template. The same file is loaded every night.
@@ -466,17 +566,15 @@ Build the planned "Plan" page with the same module: a form, then `plan_from_wiza
 
 ## First build checklist
 
-The Core layer is tested. The NINA layer still needs one pass in Visual Studio against the real `NINA.Plugin` package. Search for `VERIFY`:
+The Core layer is tested, and the plugin builds against `NINA.Plugin` 3.2. What still needs a run inside NINA (search for `VERIFY` too):
 
+* Generated blocks: the plugin constructs NINA's items directly (NINA doesn't give plugins its item factory), using NINA 3.2's constructors. Check that a generated target shows its coordinates on *Center and Rotate* and the altitude condition, and that each Smart Exposure has its filter, exposure and dither trigger. If NINA changes how Smart Exposure or Trained Flat Exposure build their children, the plugin stops with a clear error rather than imaging wrongly.
 * `ExportMetadata("Icon", …)` keys: use any SVG key from NINA's resources.
-* `SequenceEntityStatus.DISABLED`: the status NINA 3 uses for "Disable".
-* `SequenceEntityFailedException` namespace (`NINA.Core.Model`).
-* `ISequenceContainer.Insert(int, item)`: if it's missing, use `Add()` and accept that items go at the end.
-* `WaitForTime` / `TimeCondition`: the `Hours`/`Minutes` setters, and the prototype must use the plain *Time* provider.
-* `RotatorInfo.MechanicalPosition`, `MoveRotatorMechanical.MechanicalPosition`.
+* `RotatorInfo.MechanicalPosition` in Record Rotation.
 * Trained Flat Exposure: confirm it reads the trained brightness and exposure at run time, from the gain and binning set on its inner TakeExposure.
 * `File.Move(tmp, final, overwrite: true)` in Session Complete: fine on NTFS. If Dropbox briefly locks the target, add a retry.
-* Container views: if *SkyShare Targets/Flats* render blank, add a DataTemplate (see the comment in `DataTemplates.xaml`).
+* Darks: check that *Loop until Time* on `▶ DARKS (until …)` shows tonight's dawn, and that *Cool Camera* waits for the set point.
+* Container views: if *SkyShare Targets/Flats/Darks* render blank, add a DataTemplate (see the comment in `DataTemplates.xaml`).
 
 **Target Scheduler** and **Advanced API** are open-source NINA plugins and good references for each of these. Both build and modify sequencer objects at run time.
 
@@ -486,7 +584,7 @@ Suggested first test: use NINA's simulator profile, a plan with two short target
 
 ## Roadmap
 
-* **Calibration-only nights:** add `"kind": "calibration"` in schema v2 (darks, or flats for a given orientation, with no targets), plus a `SkyShare Darks` container.
+* **Calibration flats without targets:** flats for a given orientation on a night with no targets (darks-only nights are done, see §3).
 * **Mosaics:** add `"panels"` to a target and expand them into one generated block per panel (port the Framing Assistant maths).
 * **Dashboard Plan page** with an FoV preview (reuse the bot's `generate_fov_image`) and an altitude and time-window check before submitting.
 * **Live state:** if you later want "what's running now" in the dashboard, read it from the Advanced API (`/v2/api/sequence/json`) over Tailscale, alongside the status file.

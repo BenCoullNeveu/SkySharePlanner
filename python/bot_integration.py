@@ -38,7 +38,7 @@ from skyshare_plan import plan_from_wizard, write_plan, summary, rotation_warnin
 # Filters in the NINA profile. Checked again by the plugin on the acquisition PC;
 # checking here lets the bot reject typos while the user is still chatting.
 KNOWN_FILTERS = ["L", "R", "G", "B", "H", "O", "S"]
-HAS_ROTATOR = False
+HAS_ROTATOR = True
 
 
 def publish_from_bot(seq: dict, plans_dir: str, *, overwrite: bool = False) -> tuple[Path, str]:

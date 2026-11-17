@@ -41,10 +41,11 @@
     },
     "targets": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "items": {
         "$ref": "#/$defs/target"
-      }
+      },
+      "description": "Imaging targets, in order. May be empty on a calibration-only night (darks only)."
     },
     "flats": {
       "type": "object",
@@ -59,6 +60,58 @@
           "minimum": 1,
           "maximum": 200,
           "default": 30
+        }
+      }
+    },
+    "darks": {
+      "description": "Dark frames, taken by the SkyShare Darks container. Fixed sets take `count` frames once; repeating sets (repeat: true) take `count` frames each per round, round after round, until `until`.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "enum": [
+            "fixed_first",
+            "repeat_first"
+          ],
+          "default": "fixed_first",
+          "description": "fixed_first: fixed sets, then rounds of repeating sets. repeat_first: the reverse (fixed sets are taken after `until`)."
+        },
+        "until": {
+          "description": "When the repeating rounds stop: a twilight event or a local HH:MM time.",
+          "default": "astronomical_dawn",
+          "anyOf": [
+            {
+              "enum": [
+                "astronomical_dawn",
+                "nautical_dawn",
+                "civil_dawn",
+                "sunrise"
+              ]
+            },
+            {
+              "$ref": "#/$defs/hhmm"
+            }
+          ]
+        },
+        "temperature": {
+          "description": "Cool the camera to this set point (deg C) first. null = leave it as it is.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": -60,
+              "maximum": 40
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sets": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/dark_set"
+          }
         }
       }
     },
@@ -162,6 +215,50 @@
             }
           ]
         },
+        "cycle": {
+          "description": "false: shoot each filter's full count in turn. true: repeat cycles of exposures[].count frames per filter (e.g. L 3, R 1, G 1, B 1), dithering once per cycle, until a limit (end, max_frames, max_hours, next_target_altitude), the altitude limit or dawn stops the target.",
+          "type": "boolean",
+          "default": false
+        },
+        "max_frames": {
+          "description": "Stop this target after this many light frames in total. Omit for no cap.",
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_hours": {
+          "description": "Stop this target after this many hours, counted from its first exposure (wall-clock, includes pauses). Omit for no cap.",
+          "oneOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 24
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_target_altitude": {
+          "description": "Stop this target once the NEXT target in the plan is above this altitude (degrees). Not allowed on the last target.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 90
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "exposures": {
           "type": "array",
           "minItems": 1,
@@ -211,6 +308,74 @@
           }
         }
       }
+    },
+    "dark_set": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exposure",
+        "count"
+      ],
+      "properties": {
+        "exposure": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 3600
+        },
+        "count": {
+          "description": "Total frames (fixed set) or frames per round (repeating set).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "gain": {
+          "type": "integer",
+          "minimum": -1,
+          "default": -1
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": -1,
+          "default": -1
+        },
+        "binning": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "default": 1
+        },
+        "repeat": {
+          "type": "boolean",
+          "default": false,
+          "description": "true: keep taking rounds of this set until `until`."
+        }
+      }
     }
-  }
+  },
+  "anyOf": [
+    {
+      "properties": {
+        "targets": {
+          "minItems": 1
+        }
+      }
+    },
+    {
+      "required": [
+        "darks"
+      ],
+      "properties": {
+        "darks": {
+          "required": [
+            "sets"
+          ],
+          "properties": {
+            "sets": {
+              "minItems": 1
+            }
+          }
+        }
+      }
+    }
+  ]
 }

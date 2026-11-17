@@ -64,6 +64,57 @@ def test_validation_catches(mutate, needle):
     assert any(needle in x for x in sp.validate(plan))
 
 
+def test_cycle_mode_and_limits_round_trip_and_match_schema():
+    jsonschema = pytest.importorskip("jsonschema")
+    seq = {"date": "31-12-2026", "user": "Jane Doe", "targets": [
+        {"name": "M 31", "ra": "00:42:44", "dec": "41:16:09", "cycle": True,
+         "max_frames": 120, "max_hours": 3, "next_target_altitude": 40,
+         "exposures": {"L": (300, 3), "R": (300, 1), "G": (300, 1), "B": (300, 1)}},
+        {"name": "NGC 7000", "ra": "20:59:17", "dec": "44:31:44", "exposures": {"H": (600, 10)}},
+    ]}
+    plan = sp.plan_from_wizard(seq)
+    assert sp.validate(plan) == []
+    jsonschema.validate(plan.to_dict(), json.loads(SCHEMA.read_text()))
+    again = sp.Plan.from_dict(json.loads(plan.to_json()))
+    t = again.targets[0]
+    assert (t.cycle, t.max_frames, t.max_hours, t.next_target_altitude) == (True, 120, 3, 40)
+    assert "cycles of" in sp.summary(plan) and "stop at 120 frames or 3 h" in sp.summary(plan)
+
+
+def test_next_target_altitude_not_allowed_on_last_target():
+    plan = sp.plan_from_wizard({**BOT_SEQ, "next_target_altitude": 30})
+    assert any("last target" in p for p in sp.validate(plan))
+
+
+def test_calibration_plan_round_trips_and_matches_schema():
+    jsonschema = pytest.importorskip("jsonschema")
+    plan = sp.calibration_plan("12-11-2026", {"temperature": -10, "sets": [
+        {"exposure": 300, "count": 20, "gain": 100},
+        {"exposure": 600, "count": 1, "gain": 100, "repeat": True},
+    ]})
+    assert plan.night == "2026-11-12" and plan.is_calibration_only
+    assert sp.validate(plan) == []
+    jsonschema.validate(plan.to_dict(), json.loads(SCHEMA.read_text()))
+    again = sp.Plan.from_dict(json.loads(plan.to_json()))
+    assert again.darks == plan.darks
+    text = sp.summary(plan)
+    assert "300s g100 x20, then rounds of (600s g100 x1 per round) until astronomical dawn" in text
+    assert "Flats" not in text
+
+
+def test_empty_plan_and_bad_darks_are_rejected():
+    jsonschema = pytest.importorskip("jsonschema")
+    empty = sp.calibration_plan("2026-11-12", {"sets": []})
+    assert any("no targets or darks" in p for p in sp.validate(empty))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(empty.to_dict(), json.loads(SCHEMA.read_text()))
+    bad = sp.calibration_plan("2026-11-12", {"order": "x", "until": "dawn", "sets": [{"exposure": 0, "count": 1}]})
+    problems = sp.validate(bad)
+    assert any("darks.order" in p for p in problems)
+    assert any("darks.until" in p for p in problems)
+    assert any("dark set 1: exposure" in p for p in problems)
+
+
 def test_unknown_filter():
     plan = sp.plan_from_wizard(BOT_SEQ)
     problems = sp.validate(plan, known_filters=["L", "R", "G", "B"])
@@ -105,3 +156,16 @@ def test_bot_integration_publish_and_tail(tmp_path):
         f.write(',"message":"x"}\n')
     assert [e["event"] for e in tailer.poll()] == ["partial"]
     assert tailer.poll() == []
+
+
+@pytest.mark.parametrize("path", sorted((ROOT / "examples").glob("*.plan.json")), ids=lambda p: p.name)
+def test_examples_match_schema_and_validator(path):
+    """Every example is valid, except the *_BadPlan one, which must fail both checks."""
+    jsonschema = pytest.importorskip("jsonschema")
+    d = json.loads(path.read_text(encoding="utf-8"))
+    schema_errors = list(jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text())).iter_errors(d))
+    problems = sp.validate(sp.Plan.from_dict(d))
+    if "BadPlan" in path.name:
+        assert problems and schema_errors
+    else:
+        assert problems == [] and schema_errors == []

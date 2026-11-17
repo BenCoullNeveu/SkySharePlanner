@@ -43,6 +43,19 @@ namespace SkyShare.Planner.Tests {
             Assert.That(issues.Where(i => i.Severity == Severity.Error), Is.Empty, string.Join("\n", issues));
         }
 
+        private static IEnumerable<string> ExampleFiles() =>
+            Directory.GetFiles(Path.Combine(TestContext.CurrentContext.TestDirectory, "examples"), "*.plan.json")
+                .Select(Path.GetFileName).OrderBy(n => n)!;
+
+        // Every example is valid, except *_BadPlan, which must have errors.
+        [TestCaseSource(nameof(ExampleFiles))]
+        public void Examples_validate_as_expected(string file) {
+            var plan = PlanParser.ParseFile(Path.Combine(TestContext.CurrentContext.TestDirectory, "examples", file));
+            var errors = PlanValidator.Validate(plan).Where(i => i.Severity == Severity.Error).ToList();
+            if (file.Contains("BadPlan")) Assert.That(errors, Is.Not.Empty);
+            else Assert.That(errors, Is.Empty, string.Join("\n", errors));
+        }
+
         [Test]
         public void Unknown_filter_and_wrong_night_are_errors() {
             var issues = PlanValidator.Validate(Example(), new[] { "L", "R", "G", "B" },
@@ -55,6 +68,46 @@ namespace SkyShare.Planner.Tests {
         public void Multiple_rotations_without_rotator_warns() {
             var issues = PlanValidator.Validate(Example(), hasRotator: false);
             Assert.That(issues.Any(i => i.Severity == Severity.Warning && i.Message.Contains("rotations")));
+        }
+
+        [Test]
+        public void Cycle_mode_and_limits_parse() {
+            var plan = PlanParser.Parse("""
+                { "schema_version": 1, "night": "2026-11-07", "targets": [
+                  { "name": "M 31", "ra": "00:42:44", "dec": "+41:16:09", "cycle": true,
+                    "max_frames": 120, "max_hours": 2.5, "next_target_altitude": 40,
+                    "exposures": [ { "filter": "L", "exposure": 300, "count": 3 } ] },
+                  { "name": "NGC 7000", "ra": "20:59:17", "dec": "+44:31:44",
+                    "exposures": [ { "filter": "H", "exposure": 600, "count": 10 } ] } ] }
+                """);
+            var t = plan.Targets[0];
+            Assert.That((t.Cycle, t.MaxFrames, t.MaxHours, t.NextTargetAltitude), Is.EqualTo((true, 120, 2.5, 40.0)));
+            Assert.That(plan.Targets[1].Cycle, Is.False);
+            Assert.That(plan.Targets[1].MaxFrames, Is.Null);
+            Assert.That(PlanValidator.Validate(plan).Where(i => i.Severity == Severity.Error), Is.Empty);
+        }
+
+        [Test]
+        public void Next_target_altitude_on_last_target_is_an_error() {
+            var plan = Example();
+            plan.Targets[^1].NextTargetAltitude = 30;
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Severity == Severity.Error && i.Message.Contains("last target")));
+        }
+
+        [Test]
+        public void Cycle_without_any_stop_warns() {
+            var plan = Example();
+            var t = plan.Targets[0];
+            (t.Cycle, t.End, t.MaxFrames, t.MaxHours, t.NextTargetAltitude) = (true, null, null, null, null);
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Severity == Severity.Warning && i.Message.Contains("cycles with no end")));
+        }
+
+        [TestCase(0)]
+        [TestCase(20000)]
+        public void Max_frames_out_of_range_is_an_error(int frames) {
+            var plan = Example();
+            plan.Targets[0].MaxFrames = frames;
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Message.Contains("max_frames")));
         }
 
         [TestCase("23:20:48.3", true)]
@@ -121,6 +174,29 @@ namespace SkyShare.Planner.Tests {
         }
 
         [Test]
+        public void Preview_assumes_all_run_and_leaves_rotation_pending() {
+            var fp = FlatPlanner.Preview(TwoTargets(35), hasRotator: true);
+            Assert.That(fp.Groups, Has.Count.EqualTo(2));
+            Assert.That(fp.Groups[0].Targets, Is.EqualTo(new[] { "B" }));     // last in plan = current orientation
+            Assert.That(fp.Groups[0].RotatorPending, Is.False);
+            Assert.That(fp.Groups[1].Targets, Is.EqualTo(new[] { "A" }));
+            Assert.That(fp.Groups[1].MechanicalPosition, Is.Null);
+            Assert.That(fp.Groups[1].RotatorPending, Is.True);
+        }
+
+        [Test]
+        public void Preview_without_rotator_keeps_only_final_orientation() {
+            var fp = FlatPlanner.Preview(TwoTargets(35), hasRotator: false);
+            Assert.That(fp.Groups.Single().Targets, Is.EqualTo(new[] { "B" }));
+        }
+
+        [Test]
+        public void Real_plan_never_has_pending_rotation() {
+            var fp = FlatPlanner.Plan(TwoTargets(35), BothRan(), hasRotator: true);
+            Assert.That(fp.Groups.Any(g => g.RotatorPending), Is.False);
+        }
+
+        [Test]
         public void Rotation_wraps_at_360() {
             var fp = FlatPlanner.Plan(TwoTargets(359.8), BothRan(), hasRotator: false);
             Assert.That(fp.Groups, Has.Count.EqualTo(1));
@@ -184,5 +260,112 @@ namespace SkyShare.Planner.Tests {
         [TestCase("2026-11-07_Jane.plan.json", "2026-11-07_Jane.session.json")]
         public void Manifest_file_name(string plan, string expected) =>
             Assert.That(SessionManifestBuilder.ManifestFileName(plan), Is.EqualTo(expected));
+    }
+
+    public class DarkTests {
+        private const string DarkNight = @"{
+          ""schema_version"": 1, ""night"": ""2026-11-12"", ""client"": ""Calibration"",
+          ""targets"": [],
+          ""darks"": { ""temperature"": -10, ""sets"": [
+            { ""exposure"": 300, ""count"": 20, ""gain"": 100 },
+            { ""exposure"": 600, ""count"": 1, ""gain"": 100, ""repeat"": true },
+            { ""exposure"": 60, ""count"": 30, ""gain"": 0 },
+            { ""exposure"": 120, ""count"": 2, ""gain"": 0, ""repeat"": true } ] } }";
+
+        [Test]
+        public void Darks_only_plan_is_valid_with_defaults() {
+            var plan = PlanParser.Parse(DarkNight);
+            Assert.That(plan.Darks.Order, Is.EqualTo("fixed_first"));
+            Assert.That(plan.Darks.Until, Is.EqualTo("astronomical_dawn"));
+            var issues = PlanValidator.Validate(plan, new[] { "L" });
+            Assert.That(issues, Is.Empty, string.Join("\n", issues));
+        }
+
+        [Test]
+        public void Empty_plan_is_an_error() {
+            var plan = PlanParser.Parse(@"{ ""schema_version"": 1, ""night"": ""2026-11-12"", ""targets"": [] }");
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Message.Contains("no targets or darks")));
+        }
+
+        [Test]
+        public void Fixed_sets_come_first_by_default_in_plan_order() {
+            var phases = DarkPlanner.Phases(PlanParser.Parse(DarkNight).Darks);
+            Assert.That(phases.Select(p => p.Kind), Is.EqualTo(new[] { DarkPhaseKind.Fixed, DarkPhaseKind.Repeat }));
+            Assert.That(phases[0].SetIndices, Is.EqualTo(new[] { 0, 2 }));
+            Assert.That(phases[1].SetIndices, Is.EqualTo(new[] { 1, 3 }));
+        }
+
+        [Test]
+        public void Repeat_first_swaps_the_phases() {
+            var darks = PlanParser.Parse(DarkNight).Darks;
+            darks.Order = "repeat_first";
+            Assert.That(DarkPlanner.Phases(darks).Select(p => p.Kind), Is.EqualTo(new[] { DarkPhaseKind.Repeat, DarkPhaseKind.Fixed }));
+        }
+
+        [Test]
+        public void Only_fixed_or_only_repeat_gives_one_phase() {
+            var darks = PlanParser.Parse(DarkNight).Darks;
+            darks.Sets.RemoveAll(s => s.Repeat);
+            Assert.That(DarkPlanner.Phases(darks).Single().Kind, Is.EqualTo(DarkPhaseKind.Fixed));
+        }
+
+        [TestCase("astronomical_dawn", true)]
+        [TestCase("nautical_dawn", true)]
+        [TestCase("sunrise", true)]
+        [TestCase("05:30", true)]
+        [TestCase("dawn", false)]
+        [TestCase("25:00", false)]
+        public void Until_values(string until, bool ok) {
+            var plan = PlanParser.Parse(DarkNight);
+            plan.Darks.Until = until;
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Message.Contains("darks.until")), Is.EqualTo(!ok));
+        }
+
+        [Test]
+        public void Bad_dark_settings_are_errors() {
+            var plan = PlanParser.Parse(DarkNight);
+            plan.Darks.Order = "whatever";
+            plan.Darks.Temperature = -80;
+            plan.Darks.Sets[0].Count = 0;
+            plan.Darks.Sets[1].Exposure = 0;
+            var errors = PlanValidator.Validate(plan).Select(i => i.Message).ToList();
+            Assert.That(errors, Has.Some.Contains("darks.order"));
+            Assert.That(errors, Has.Some.Contains("darks.temperature"));
+            Assert.That(errors, Has.Some.Contains("dark set 1: count"));
+            Assert.That(errors, Has.Some.Contains("dark set 2: exposure"));
+        }
+
+        [Test]
+        public void Describe_lists_fixed_then_rounds() {
+            var text = DarkPlanner.Describe(PlanParser.Parse(DarkNight).Darks);
+            Assert.That(text, Does.StartWith("darks at -10°C: 300s g100 ×20, 60s g0 ×30, then rounds of ("));
+            Assert.That(text, Does.EndWith("until astronomical dawn"));
+        }
+
+        [Test]
+        public void Manifest_counts_darks_and_repeat_sets_never_make_it_partial() {
+            var plan = PlanParser.Parse(DarkNight);
+            var none = new Dictionary<int, IReadOnlyDictionary<string, int>>();
+            DarkSetResult[] Results(int fixedA, int fixedB) => new[] {
+                new DarkSetResult(plan.Darks.Sets[0], fixedA), new DarkSetResult(plan.Darks.Sets[1], 7),
+                new DarkSetResult(plan.Darks.Sets[2], fixedB), new DarkSetResult(plan.Darks.Sets[3], 14) };
+
+            var done = SessionManifestBuilder.Build(plan, "p.plan.json", none, Array.Empty<FlatSetResult>(),
+                Array.Empty<string>(), DateTime.UtcNow, Results(20, 30));
+            Assert.That(done.Outcome, Is.EqualTo("complete"));
+            Assert.That(done.Darks.FramesTotal, Is.EqualTo(71));
+            Assert.That(done.Darks.Sets[1].Planned, Is.Null);
+            Assert.That(done.Darks.Sets[0].Planned, Is.EqualTo(20));
+            Assert.That(done.Actions, Is.Empty);
+
+            var short1 = SessionManifestBuilder.Build(plan, "p.plan.json", none, Array.Empty<FlatSetResult>(),
+                Array.Empty<string>(), DateTime.UtcNow, Results(12, 30));
+            Assert.That(short1.Outcome, Is.EqualTo("partial"));
+
+            var nothing = SessionManifestBuilder.Build(plan, "p.plan.json", none, Array.Empty<FlatSetResult>(),
+                Array.Empty<string>(), DateTime.UtcNow, Results(0, 0).Select(r => r with { FramesTaken = 0 }).ToArray());
+            Assert.That(nothing.Outcome, Is.EqualTo("nothing_captured"));
+            Assert.That(done.ToJson(), Does.Contain("\"darks\"").And.Contain("\"frames_total\": 71"));
+        }
     }
 }

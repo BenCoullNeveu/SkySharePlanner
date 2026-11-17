@@ -12,7 +12,7 @@ using SkyShare.Planner.Runtime;
 namespace SkyShare.Planner.Sequencer {
 
     /// <summary>
-    /// Place inside the target PROTOTYPE, right after "Center and Rotate".
+    /// SkyShare Targets adds this to every generated target, right after centering.
     /// Records the rotator's MECHANICAL position for this target so SkyShare Flats
     /// can return to exactly the same physical orientation later.
     /// (The plan stores sky position angle; mechanical position depends on the
@@ -20,7 +20,7 @@ namespace SkyShare.Planner.Sequencer {
     /// Does nothing if no rotator is connected.
     /// </summary>
     [ExportMetadata("Name", "SkyShare: Record Rotation")]
-    [ExportMetadata("Description", "Remembers the rotator position for this target's flats. Put after Center and Rotate.")]
+    [ExportMetadata("Description", "Remembers the rotator position for this target's flats. Added automatically by SkyShare Targets.")]
     [ExportMetadata("Icon", "RotatorSVG")]       // VERIFY icon key
     [ExportMetadata("Category", "SkyShare")]
     [Export(typeof(ISequenceItem))]
@@ -43,7 +43,7 @@ namespace SkyShare.Planner.Sequencer {
 
             var index = PlanStore.FindTargetIndex(this);
             if (index is null) {
-                Logger.Warning("[SkyShare] Record Rotation is not inside a SkyShare-generated target; ignoring.");
+                StatusReporter.Warn("rotation_not_recorded", "Record Rotation is not inside a SkyShare-generated target; ignoring.");
                 return Task.CompletedTask;
             }
             PlanStore.RecordMechanicalPosition(index.Value, info.MechanicalPosition); // VERIFY: RotatorInfo.MechanicalPosition

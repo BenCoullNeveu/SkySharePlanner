@@ -59,7 +59,7 @@ namespace SkyShare.Planner.Core {
             else if (expectedNight is { } en && night != en)
                 Err($"plan is for night {plan.Night} but tonight is {PlanLocator.NightKey(en)}");
 
-            if (plan.Targets.Count == 0) Err("plan has no targets");
+            if (plan.Targets.Count == 0 && plan.Darks.Sets.Count == 0) Err("plan has no targets or darks");
             if (plan.Flats.Count is < 1 or > 200) Err("flats.count must be 1-200");
 
             if (plan.Processing.Triage is not (null or "local" or "web" or "send" or "build"))
@@ -79,6 +79,14 @@ namespace SkyShare.Planner.Core {
                 if (t.Start is not null && !Sexagesimal.TryParseHhMm(t.Start, out _)) Err($"{tag}: bad start '{t.Start}'");
                 if (t.End is not null && !Sexagesimal.TryParseHhMm(t.End, out _)) Err($"{tag}: bad end '{t.End}'");
                 if (t.Exposures.Count == 0) Err($"{tag}: no exposures");
+                if (t.MaxFrames is < 1 or > 10000) Err($"{tag}: max_frames must be 1-10000");
+                if (t.MaxHours is <= 0 or > 24) Err($"{tag}: max_hours must be 0-24");
+                if (t.NextTargetAltitude is < 0 or > 90) Err($"{tag}: next_target_altitude must be 0-90");
+                if (t.NextTargetAltitude is not null && i == plan.Targets.Count - 1)
+                    Err($"{tag}: next_target_altitude is set but this is the last target");
+                if (t.Cycle && t.End is null && t.MaxFrames is null && t.MaxHours is null && t.NextTargetAltitude is null)
+                    Warn($"{tag}: cycles with no end, max_frames, max_hours or next_target_altitude - it will image until the altitude limit or dawn" +
+                         (i < plan.Targets.Count - 1 ? ", and later targets may never start" : ""));
 
                 foreach (var e in t.Exposures) {
                     var et = $"{tag}/{e.Filter}";
@@ -90,6 +98,8 @@ namespace SkyShare.Planner.Core {
                         Err($"{et}: filter not in NINA profile (have: {string.Join(", ", filters)})");
                 }
             }
+
+            ValidateDarks(plan.Darks, Err);
 
             // Order sanity: a target's start should not be before the previous target's end.
             // (Times wrap at midnight, so only warn - the sequence still runs.)
@@ -105,6 +115,22 @@ namespace SkyShare.Planner.Core {
                 Warn($"{rotations} different rotations but no rotator connected - only flats matching the final orientation can be taken");
 
             return issues;
+        }
+
+        private static void ValidateDarks(DarkSettings d, Action<string> err) {
+            if (!DarkPlanner.Orders.Contains(d.Order))
+                err($"darks.order '{d.Order}' must be {string.Join(" or ", DarkPlanner.Orders)}");
+            if (!DarkPlanner.IsValidUntil(d.Until))
+                err($"darks.until '{d.Until}' must be {string.Join(", ", DarkPlanner.UntilEvents)} or HH:MM");
+            if (d.Temperature is < -60 or > 40) err("darks.temperature must be -60 to 40 °C");
+            for (int i = 0; i < d.Sets.Count; i++) {
+                var s = d.Sets[i];
+                var tag = $"dark set {i + 1}";
+                if (s.Exposure is <= 0 or > 3600) err($"{tag}: exposure must be 0-3600 s");
+                if (s.Count is < 1 or > 2000) err($"{tag}: count must be 1-2000");
+                if (s.Gain < -1 || s.Offset < -1) err($"{tag}: gain/offset must be >= -1");
+                if (s.Binning is < 1 or > 4) err($"{tag}: binning must be 1-4");
+            }
         }
     }
 }

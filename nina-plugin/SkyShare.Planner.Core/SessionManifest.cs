@@ -25,6 +25,7 @@ namespace SkyShare.Planner.Core {
         [JsonPropertyName("outcome")] public string Outcome { get; init; } = "";
         [JsonPropertyName("targets")] public List<ManifestTarget> Targets { get; init; } = new();
         [JsonPropertyName("flats")] public ManifestFlats Flats { get; init; } = new();
+        [JsonPropertyName("darks")] public ManifestDarks Darks { get; init; } = new();
         /// <summary>What the compute server must do, in order. Empty = nothing to process.</summary>
         [JsonPropertyName("actions")] public List<ManifestAction> Actions { get; init; } = new();
 
@@ -64,6 +65,22 @@ namespace SkyShare.Planner.Core {
         [JsonPropertyName("frames")] public int Frames { get; init; }
     }
 
+    public sealed class ManifestDarks {
+        [JsonPropertyName("sets")] public List<ManifestDarkSet> Sets { get; init; } = new();
+        [JsonPropertyName("frames_total")] public int FramesTotal { get; init; }
+    }
+
+    public sealed class ManifestDarkSet {
+        [JsonPropertyName("exposure")] public double Exposure { get; init; }
+        [JsonPropertyName("gain")] public int Gain { get; init; }
+        [JsonPropertyName("offset")] public int Offset { get; init; }
+        [JsonPropertyName("binning")] public int Binning { get; init; }
+        [JsonPropertyName("repeat")] public bool Repeat { get; init; }
+        /// <summary>Planned frames for a fixed set; null for a repeating set (it runs until `until`).</summary>
+        [JsonPropertyName("planned")] public int? Planned { get; init; }
+        [JsonPropertyName("frames")] public int Frames { get; init; }
+    }
+
     /// <summary>
     /// One instruction for the compute server. v1 has a single type:
     ///   "skystack_run" = python run_routine.py run -t &lt;target&gt; -s &lt;session&gt; [options]
@@ -82,6 +99,9 @@ namespace SkyShare.Planner.Core {
     /// <summary>Flat set as actually executed tonight.</summary>
     public sealed record FlatSetResult(FlatSpec Spec, double SkyRotation, int FramesTaken);
 
+    /// <summary>Dark set as executed tonight, in plan order.</summary>
+    public sealed record DarkSetResult(DarkSet Set, int FramesTaken);
+
     public static class SessionManifestBuilder {
 
         /// <param name="lightsByTarget">plan target index → filter → frames completed (only targets that were built)</param>
@@ -91,7 +111,9 @@ namespace SkyShare.Planner.Core {
             IReadOnlyDictionary<int, IReadOnlyDictionary<string, int>> lightsByTarget,
             IReadOnlyList<FlatSetResult> flats,
             IReadOnlyList<string> flatsSkipped,
-            DateTime completedUtc) {
+            DateTime completedUtc,
+            IReadOnlyList<DarkSetResult>? darks = null) {
+            darks ??= Array.Empty<DarkSetResult>();
 
             var targets = new List<ManifestTarget>();
             for (int i = 0; i < plan.Targets.Count; i++) {
@@ -113,9 +135,12 @@ namespace SkyShare.Planner.Core {
                 });
             }
 
-            int captured = targets.Sum(t => t.LightsTotal);
+            int darkFrames = darks.Sum(d => d.FramesTaken);
+            int captured = targets.Sum(t => t.LightsTotal) + darkFrames;
+            // Repeating dark sets have no planned total, so they never make a night partial.
             string outcome = captured == 0 ? "nothing_captured"
-                : targets.All(t => t.LightsTotal >= t.PlannedTotal) ? "complete"
+                : targets.All(t => t.LightsTotal >= t.PlannedTotal)
+                  && darks.All(d => d.Set.Repeat || d.FramesTaken >= d.Set.Count) ? "complete"
                 : "partial";
 
             var actions = !plan.Processing.Enabled ? new List<ManifestAction>()
@@ -142,6 +167,14 @@ namespace SkyShare.Planner.Core {
                     }).ToList(),
                     FramesTotal = flats.Sum(f => f.FramesTaken),
                     Skipped = flatsSkipped.ToList(),
+                },
+                Darks = new ManifestDarks {
+                    Sets = darks.Select(d => new ManifestDarkSet {
+                        Exposure = d.Set.Exposure, Gain = d.Set.Gain, Offset = d.Set.Offset,
+                        Binning = d.Set.Binning, Repeat = d.Set.Repeat,
+                        Planned = d.Set.Repeat ? null : d.Set.Count, Frames = d.FramesTaken,
+                    }).ToList(),
+                    FramesTotal = darkFrames,
                 },
                 Actions = actions,
             };

@@ -14,7 +14,8 @@ namespace SkyShare.Planner.Core {
         double SkyRotation,
         double? MechanicalPosition,   // where to send the rotator; null = don't move
         IReadOnlyList<FlatSpec> Specs,
-        IReadOnlyList<string> Targets);
+        IReadOnlyList<string> Targets,
+        bool RotatorPending = false); // preview only: needs a rotator move, position not known until imaged
 
     /// <summary>What actually happened to a target during the night (filled in by the plugin).</summary>
     public sealed record TargetRunRecord(bool Ran, double? MechanicalPosition);
@@ -36,10 +37,29 @@ namespace SkyShare.Planner.Core {
     public static class FlatPlanner {
         public const double RotationTolerance = 0.5; // degrees
 
+        /// <summary>The flats to take, from what actually happened tonight.</summary>
         public static FlatPlan Plan(
             NightPlan plan,
             IReadOnlyDictionary<int, TargetRunRecord> runs,
-            bool hasRotator) {
+            bool hasRotator) => Build(plan, runs, hasRotator, preview: false);
+
+        /// <summary>
+        /// The flats we expect to take, before anything is imaged: assumes every target
+        /// runs in plan order. Groups that will need a rotator move are kept with
+        /// <see cref="FlatGroup.RotatorPending"/> set, since the mechanical position is
+        /// only recorded while imaging. The real plan replaces this when flats run.
+        /// </summary>
+        public static FlatPlan Preview(NightPlan plan, bool hasRotator) {
+            var allRun = Enumerable.Range(0, plan.Targets.Count)
+                .ToDictionary(i => i, _ => new TargetRunRecord(true, null));
+            return Build(plan, allRun, hasRotator, preview: true);
+        }
+
+        private static FlatPlan Build(
+            NightPlan plan,
+            IReadOnlyDictionary<int, TargetRunRecord> runs,
+            bool hasRotator,
+            bool preview) {
 
             var skipped = new List<string>();
             if (!plan.Flats.Enabled) return new FlatPlan(Array.Empty<FlatGroup>(), new[] { "flats disabled in plan" });
@@ -79,8 +99,9 @@ namespace SkyShare.Planner.Core {
                     skipped.Add($"rotation {rot:0.#}° ({string.Join(", ", names)}): no rotator, camera is at a different angle");
                     continue;
                 }
-                if (!isCurrent && mech is null) {
-                    skipped.Add($"rotation {rot:0.#}° ({string.Join(", ", names)}): no mechanical position recorded - add 'SkyShare: Record Rotation' to the target prototype");
+                bool pending = !isCurrent && mech is null && preview;
+                if (!isCurrent && mech is null && !preview) {
+                    skipped.Add($"rotation {rot:0.#}° ({string.Join(", ", names)}): no rotator position was recorded while imaging");
                     continue;
                 }
 
@@ -90,7 +111,7 @@ namespace SkyShare.Planner.Core {
                     .Distinct()
                     .ToList();
 
-                groups.Add(new FlatGroup(rot, isCurrent ? null : mech, specs, names));
+                groups.Add(new FlatGroup(rot, isCurrent ? null : mech, specs, names, pending));
             }
             return new FlatPlan(groups, skipped);
         }

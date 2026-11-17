@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 
 namespace SkyShare.Planner.Runtime {
 
@@ -19,25 +20,54 @@ namespace SkyShare.Planner.Runtime {
     ///    SKYSHARE_DISCORD_WEBHOOK is set on the acquisition PC (kept out of the
     ///    sequence file and out of Dropbox on purpose).
     ///
+    /// Warnings and errors also go to NINA itself: its log at the matching level
+    /// and a notification in the NINA window, so you can see what happened without
+    /// opening the status file.
+    ///
     /// Never throws: reporting must not break imaging.
     /// </summary>
     public static class StatusReporter {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
         private static readonly object FileGate = new();
 
+        /// <summary>Progress: NINA log (info) + status file + webhook.</summary>
         public static void Report(string @event, string message, object? data = null) {
             Logger.Info($"[SkyShare] {@event}: {message}");
-            WriteStatusLine(@event, message, data);
-            _ = PostWebhookAsync($"**{@event}** - {message}");
+            Send("info", @event, message, data);
         }
 
-        private static void WriteStatusLine(string @event, string message, object? data) {
+        /// <summary>Something was skipped or looks wrong, but the night continues.</summary>
+        public static void Warn(string @event, string message, object? data = null) {
+            Logger.Warning($"[SkyShare] {@event}: {message}");
+            Notify(() => Notification.ShowWarning($"SkyShare: {message}"));
+            Send("warning", @event, message, data);
+        }
+
+        /// <summary>Something failed.</summary>
+        public static void Error(string @event, string message, object? data = null) {
+            Logger.Error($"[SkyShare] {@event}: {message}");
+            Notify(() => Notification.ShowError($"SkyShare: {message}"));
+            Send("error", @event, message, data);
+        }
+
+        private static void Send(string level, string @event, string message, object? data) {
+            WriteStatusLine(level, @event, message, data);
+            var prefix = level switch { "error" => "ERROR ", "warning" => "WARNING ", _ => "" };
+            _ = PostWebhookAsync($"{prefix}**{@event}** - {message}");
+        }
+
+        private static void Notify(Action show) {
+            try { show(); } catch (Exception e) { Logger.Warning($"[SkyShare] could not show notification: {e.Message}"); }
+        }
+
+        private static void WriteStatusLine(string level, string @event, string message, object? data) {
             try {
                 var plan = PlanStore.PlanPath;
                 if (plan is null) return;
                 var path = Path.ChangeExtension(plan, null) + ".status.jsonl"; // x.plan.json -> x.plan.status.jsonl
                 var line = JsonSerializer.Serialize(new Dictionary<string, object?> {
                     ["utc"] = DateTime.UtcNow.ToString("o"),
+                    ["level"] = level,
                     ["event"] = @event,
                     ["message"] = message,
                     ["data"] = data,

@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "night": "2026-11-09",
+  "client": "John Smith",
+  "created_by": "discord",
+  "created_utc": "2026-11-08T21:00:00Z",
+  "targets": [
+    {
+      "name": "M 33 John Smith",
+      "ra": "01:33:50.9",
+      "dec": "+30:39:36",
+      "rotation": 0,
+      "start": null,
+      "end": null,
+      "cycle": true,
+      "max_frames": 12,
+      "next_target_altitude": 30,
+      "exposures": [
+        { "filter": "Filter 0", "exposure": 10, "count": 3, "gain": 100 },
+        { "filter": "R", "exposure": 10, "count": 1, "gain": 100 },
+        { "filter": "G", "exposure": 10, "count": 1, "gain": 100 },
+        { "filter": "B", "exposure": 10, "count": 1, "gain": 100 }
+      ]
+    },
+    {
+      "name": "M 42 John Smith",
+      "ra": "05:35:17.3",
+      "dec": "-05:23:28",
+      "rotation": 90,
+      "start": null,
+      "end": null,
+      "cycle": true,
+      "max_hours": 0.25,
+      "exposures": [
+        { "filter": "Filter 1", "exposure": 5, "count": 2, "gain": 100 },
+        { "filter": "Filter 2", "exposure": 5, "count": 2, "gain": 100 }
+      ]
+    }
+  ],
+  "flats": { "enabled": true, "count": 5 },
+  "processing": { "enabled": true, "triage": "send", "postprocess": null, "export": true }
+}

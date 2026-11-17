@@ -20,6 +20,8 @@
     <AssemblyName>SkyShare.Planner</AssemblyName>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <!-- NINA plugins live here; 3.0.0 is the folder for every NINA 3.x -->
+    <!-- ToastNotifications/FreeImage come with NINA.Plugin and target .NET Framework; NINA ships them, so ignore -->
+    <NoWarn>$(NoWarn);NU1701</NoWarn>
     <NinaPluginDir>$(LOCALAPPDATA)\NINA\Plugins\3.0.0\SkyShare Planner</NinaPluginDir>
   </PropertyGroup>
 
@@ -37,7 +39,14 @@
 
   <Target Name="DeployToNina" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' And '$(OS)' == 'Windows_NT'">
     <MakeDir Directories="$(NinaPluginDir)" />
-    <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll;$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(NinaPluginDir)" />
-    <Message Importance="high" Text="SkyShare Planner copied to $(NinaPluginDir) - restart NINA to load it." />
+    <!-- NINA locks the DLL while running: don't fail the build, just say so -->
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).dll" DestinationFolder="$(NinaPluginDir)"
+          Retries="0" ContinueOnError="true">
+      <Output TaskParameter="CopiedFiles" ItemName="_NinaCopied" />
+    </Copy>
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFolder="$(NinaPluginDir)"
+          Retries="0" ContinueOnError="true" />
+    <Message Condition="'@(_NinaCopied)' != ''" Importance="high" Text="SkyShare Planner copied to $(NinaPluginDir) - restart NINA to load it." />
+    <Warning Condition="'@(_NinaCopied)' == ''" Text="SkyShare Planner was built but NOT copied to NINA (is NINA running?). Close NINA and build again." />
   </Target>
 </Project>

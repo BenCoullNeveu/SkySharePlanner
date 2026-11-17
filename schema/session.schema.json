@@ -4,38 +4,156 @@
   "title": "SkyShare session manifest (v1)",
   "description": "Written by 'SkyShare: Session Complete' at the end of the night, next to the plan file. Read by SkyStack's session watcher, which waits for the listed frames to arrive and then runs the actions.",
   "type": "object",
-  "required": ["schema_version", "kind", "night", "plan_file", "outcome", "targets", "flats", "actions"],
+  "required": [
+    "schema_version",
+    "kind",
+    "night",
+    "plan_file",
+    "outcome",
+    "targets",
+    "flats",
+    "actions"
+  ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "kind": { "const": "skyshare_session" },
-    "night": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
-    "client": { "type": ["string", "null"] },
-    "plan_file": { "type": "string" },
-    "completed_utc": { "type": "string" },
-    "outcome": { "enum": ["complete", "partial", "nothing_captured"] },
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "skyshare_session"
+    },
+    "night": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "client": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "plan_file": {
+      "type": "string"
+    },
+    "completed_utc": {
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "complete",
+        "partial",
+        "nothing_captured"
+      ]
+    },
     "targets": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "session", "ran", "lights_total"],
+        "required": [
+          "name",
+          "session",
+          "ran",
+          "lights_total"
+        ],
         "properties": {
-          "name": { "description": "SkyStack target folder: LIGHT/<name>/", "type": "string" },
-          "session": { "description": "Session folder: LIGHT/<name>/<session>/", "type": "string" },
-          "ran": { "type": "boolean" },
-          "lights": { "type": "object", "additionalProperties": { "type": "integer" } },
-          "lights_total": { "type": "integer", "minimum": 0 },
-          "planned": { "type": "object", "additionalProperties": { "type": "integer" } },
-          "planned_total": { "type": "integer", "minimum": 0 }
+          "name": {
+            "description": "SkyStack target folder: LIGHT/<name>/",
+            "type": "string"
+          },
+          "session": {
+            "description": "Session folder: LIGHT/<name>/<session>/",
+            "type": "string"
+          },
+          "ran": {
+            "type": "boolean"
+          },
+          "lights": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "lights_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "planned": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "planned_total": {
+            "type": "integer",
+            "minimum": 0
+          }
         }
       }
     },
     "flats": {
       "type": "object",
-      "required": ["frames_total"],
+      "required": [
+        "frames_total"
+      ],
       "properties": {
-        "sets": { "type": "array" },
-        "frames_total": { "type": "integer", "minimum": 0 },
-        "skipped": { "type": "array", "items": { "type": "string" } }
+        "sets": {
+          "type": "array"
+        },
+        "frames_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "darks": {
+      "type": "object",
+      "required": [
+        "frames_total"
+      ],
+      "properties": {
+        "sets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "exposure": {
+                "type": "number"
+              },
+              "gain": {
+                "type": "integer"
+              },
+              "offset": {
+                "type": "integer"
+              },
+              "binning": {
+                "type": "integer"
+              },
+              "repeat": {
+                "type": "boolean"
+              },
+              "planned": {
+                "description": "null for a repeating set",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "frames": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "frames_total": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "actions": {
@@ -43,14 +161,44 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "properties": {
-          "type": { "description": "v1: skystack_run = run_routine.py run -t <target> -s <session>...", "type": "string" },
-          "target": { "type": "string" },
-          "sessions": { "type": "array", "items": { "type": "string" } },
-          "triage": { "enum": ["local", "web", "send", "build", null] },
-          "postprocess": { "type": ["boolean", "null"] },
-          "export": { "type": ["boolean", "null"] }
+          "type": {
+            "description": "v1: skystack_run = run_routine.py run -t <target> -s <session>...",
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "triage": {
+            "enum": [
+              "local",
+              "web",
+              "send",
+              "build",
+              null
+            ]
+          },
+          "postprocess": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "export": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
         }
       }
     }

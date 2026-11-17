@@ -41,7 +41,7 @@ namespace SkyShare.Planner.Sequencer {
             var plan = PlanStore.Plan;
             var planPath = PlanStore.PlanPath;
             if (plan is null || planPath is null) {
-                Logger.Warning("[SkyShare] Session Complete: no plan loaded, no manifest written.");
+                StatusReporter.Warn("session_no_plan", "Session Complete: no plan loaded, no manifest written.");
                 return Task.CompletedTask;
             }
 
@@ -49,7 +49,7 @@ namespace SkyShare.Planner.Sequencer {
                 var (flatSets, flatsSkipped) = PlanStore.FlatResults();
                 var manifest = SessionManifestBuilder.Build(
                     plan, Path.GetFileName(planPath), PlanStore.LightCounts(),
-                    flatSets, flatsSkipped, DateTime.UtcNow);
+                    flatSets, flatsSkipped, DateTime.UtcNow, PlanStore.DarkResults());
 
                 var dir = Path.GetDirectoryName(planPath)!;
                 var final = Path.Combine(dir, SessionManifestBuilder.ManifestFileName(Path.GetFileName(planPath)));
@@ -61,11 +61,11 @@ namespace SkyShare.Planner.Sequencer {
                 var captured = string.Join(", ", manifest.Targets.Where(t => t.Ran).Select(t => $"{t.Name} ({t.LightsTotal})"));
                 StatusReporter.Report("session_complete",
                     $"{manifest.Outcome}: {(captured.Length > 0 ? captured : "no lights")}; " +
-                    $"{manifest.Flats.FramesTotal} flats; {manifest.Actions.Count} job(s) for SkyStack",
+                    $"{manifest.Flats.FramesTotal} flats; {manifest.Darks.FramesTotal} darks; {manifest.Actions.Count} job(s) for SkyStack",
                     new { manifest = LastManifest, manifest.Outcome, actions = manifest.Actions.Count });
             } catch (Exception e) {
-                Logger.Error($"[SkyShare] Session Complete failed: {e}");
-                StatusReporter.Report("session_manifest_failed", e.Message);
+                Logger.Error($"[SkyShare] Session Complete failed: {e}"); // full stack trace
+                StatusReporter.Error("session_manifest_failed", $"could not write the session manifest, so SkyStack won't start: {e.Message}");
             }
             return Task.CompletedTask;
         }

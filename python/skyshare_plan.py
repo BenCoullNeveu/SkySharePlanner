@@ -67,12 +67,43 @@ class Target:
     rotation: float = 0.0
     start: str | None = None
     end: str | None = None
+    # False: each filter's full count in turn. True: repeat cycles of `count` frames
+    # per filter (e.g. L 3, R 1, G 1, B 1), one dither per cycle, until a limit stops it.
+    cycle: bool = False
+    # Limits - whichever comes first stops the target (in either mode). `end` is one too.
+    max_frames: int | None = None
+    max_hours: float | None = None
+    next_target_altitude: float | None = None   # stop once the NEXT target is above this
 
 
 @dataclass
 class Flats:
     enabled: bool = True
     count: int = 30
+
+
+DARK_ORDERS = ("fixed_first", "repeat_first")
+DARK_UNTIL_EVENTS = ("astronomical_dawn", "nautical_dawn", "civil_dawn", "sunrise")
+
+
+@dataclass
+class DarkSet:
+    exposure: float
+    count: int                 # total frames (fixed) or frames per round (repeat)
+    gain: int = -1
+    offset: int = -1
+    binning: int = 1
+    repeat: bool = False       # True: keep taking rounds of this set until `until`
+
+
+@dataclass
+class Darks:
+    """Dark frames for the SkyShare Darks container. Fixed sets first by default,
+    then rounds of the repeating sets until `until` (twilight event or HH:MM)."""
+    sets: list[DarkSet] = field(default_factory=list)
+    order: str = "fixed_first"
+    until: str = "astronomical_dawn"
+    temperature: float | None = None   # cool the camera to this first (deg C)
 
 
 @dataclass
@@ -90,6 +121,7 @@ class Plan:
     targets: list[Target]
     client: str | None = None
     flats: Flats = field(default_factory=Flats)
+    darks: Darks = field(default_factory=Darks)
     processing: Processing = field(default_factory=Processing)
     created_by: str | None = None
     created_utc: str | None = None
@@ -111,6 +143,9 @@ class Plan:
                 name=t["name"], ra=t["ra"], dec=t["dec"],
                 rotation=float(t.get("rotation", 0) or 0),
                 start=t.get("start"), end=t.get("end"),
+                cycle=bool(t.get("cycle", False)),
+                max_frames=t.get("max_frames"), max_hours=t.get("max_hours"),
+                next_target_altitude=t.get("next_target_altitude"),
                 exposures=[Exposure(**e) for e in t["exposures"]],
             )
             for t in d["targets"]
@@ -120,13 +155,27 @@ class Plan:
             night=d["night"], client=d.get("client"),
             created_by=d.get("created_by"), created_utc=d.get("created_utc"),
             targets=targets, flats=Flats(**d.get("flats", {})),
+            darks=_darks_from_dict(d.get("darks") or {}),
             processing=Processing(**d.get("processing", {})),
         )
+
+    @property
+    def is_calibration_only(self) -> bool:
+        return not self.targets and bool(self.darks.sets)
 
     # -- file naming -------------------------------------------------------
     @property
     def filename(self) -> str:
         return f"{self.night}_{slug(self.client) or 'plan'}{PLAN_SUFFIX}"
+
+
+def _darks_from_dict(d: dict) -> Darks:
+    return Darks(
+        sets=[DarkSet(**s) for s in d.get("sets", [])],
+        order=d.get("order", "fixed_first"),
+        until=d.get("until", "astronomical_dawn"),
+        temperature=d.get("temperature"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +199,9 @@ def validate(plan: Plan, known_filters: Iterable[str] | None = None) -> list[str
             datetime.strptime(plan.night, "%Y-%m-%d")
         except ValueError:
             p.append(f"night '{plan.night}' is not a real date")
-    if not plan.targets:
-        p.append("plan has no targets")
+    if not plan.targets and not plan.darks.sets:
+        p.append("plan has no targets or darks")
+    p.extend(_validate_darks(plan.darks))
     if not (1 <= plan.flats.count <= 200):
         p.append("flats.count must be 1-200")
     if plan.processing.triage not in (None, "local", "web", "send", "build"):
@@ -187,6 +237,15 @@ def validate(plan: Plan, known_filters: Iterable[str] | None = None) -> list[str
                 p.append(f"{tag}: {k} must be HH:MM (24h) or null")
         if not t.exposures:
             p.append(f"{tag}: no exposures")
+        if t.max_frames is not None and not (1 <= t.max_frames <= 10000):
+            p.append(f"{tag}: max_frames must be 1-10000")
+        if t.max_hours is not None and not (0 < t.max_hours <= 24):
+            p.append(f"{tag}: max_hours must be 0-24")
+        if t.next_target_altitude is not None:
+            if not (0 <= t.next_target_altitude <= 90):
+                p.append(f"{tag}: next_target_altitude must be 0-90")
+            if i == len(plan.targets):
+                p.append(f"{tag}: next_target_altitude is set but this is the last target")
         for e in t.exposures:
             if not (0 < e.exposure <= 3600):
                 p.append(f"{tag}/{e.filter}: exposure must be 0-3600 s")
@@ -199,6 +258,68 @@ def validate(plan: Plan, known_filters: Iterable[str] | None = None) -> list[str
             if filters is not None and e.filter.upper() not in filters:
                 p.append(f"{tag}: unknown filter '{e.filter}' (have: {', '.join(sorted(filters))})")
     return p
+
+
+def _validate_darks(d: Darks) -> list[str]:
+    p: list[str] = []
+    if d.order not in DARK_ORDERS:
+        p.append(f"darks.order must be {' or '.join(DARK_ORDERS)}")
+    if d.until not in DARK_UNTIL_EVENTS and not _HHMM_RE.match(d.until or ""):
+        p.append(f"darks.until must be {', '.join(DARK_UNTIL_EVENTS)} or HH:MM")
+    if d.temperature is not None and not (-60 <= d.temperature <= 40):
+        p.append("darks.temperature must be -60 to 40 C")
+    for i, s in enumerate(d.sets, 1):
+        tag = f"dark set {i}"
+        if not (0 < s.exposure <= 3600):
+            p.append(f"{tag}: exposure must be 0-3600 s")
+        if not (1 <= s.count <= 2000):
+            p.append(f"{tag}: count must be 1-2000")
+        if s.gain < -1 or s.offset < -1:
+            p.append(f"{tag}: gain/offset must be >= -1")
+        if not (1 <= s.binning <= 4):
+            p.append(f"{tag}: binning must be 1-4")
+    return p
+
+
+def calibration_plan(night: str, darks: Darks | dict, *, client: str | None = "Calibration",
+                     created_by: str = "dashboard") -> Plan:
+    """A darks-only night (no targets, no flats, no processing job).
+
+    `darks` may be a Darks or the plan-file dict shape, e.g.
+        {"sets": [{"exposure": 300, "count": 20, "gain": 100},
+                  {"exposure": 600, "count": 1, "gain": 100, "repeat": True}]}
+    """
+    return Plan(
+        night=_normalise_date(night),
+        client=client,
+        targets=[],
+        flats=Flats(enabled=False),
+        darks=darks if isinstance(darks, Darks) else _darks_from_dict(darks),
+        processing=Processing(enabled=False),
+        created_by=created_by,
+        created_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+
+
+def describe_darks(d: Darks) -> str:
+    """Same wording as the plugin's Load Plan summary."""
+    if not d.sets:
+        return "no darks"
+    def one(s: DarkSet) -> str:
+        txt = f"{s.exposure:g}s" + (f" g{s.gain}" if s.gain >= 0 else "") + (f" o{s.offset}" if s.offset >= 0 else "")
+        txt += (f" bin{s.binning}" if s.binning > 1 else "") + f" x{s.count}" + (" per round" if s.repeat else "")
+        return txt
+    fixed = [one(s) for s in d.sets if not s.repeat]
+    rounds = [one(s) for s in d.sets if s.repeat]
+    parts = []
+    if fixed:
+        parts.append(", ".join(fixed))
+    if rounds:
+        parts.append(f"rounds of ({', '.join(rounds)}) until {d.until.replace('_', ' ')}")
+    if d.order == "repeat_first":
+        parts.reverse()
+    cool = f" at {d.temperature:g} C" if d.temperature is not None else ""
+    return f"darks{cool}: " + ", then ".join(parts)
 
 
 def rotation_warning(plan: Plan, has_rotator: bool) -> str | None:
@@ -250,6 +371,9 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
             name=name, ra=str(t["ra"]), dec=str(t["dec"]),
             rotation=float(t.get("rot", t.get("rotation", 0)) or 0) % 360,
             start=t.get("start"), end=t.get("end"), exposures=exps,
+            cycle=bool(t.get("cycle", False)),
+            max_frames=t.get("max_frames"), max_hours=t.get("max_hours"),
+            next_target_altitude=t.get("next_target_altitude"),
         ))
 
     return Plan(
@@ -257,6 +381,7 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
         client=seq.get("user"),
         targets=targets,
         flats=Flats(count=flats_count),
+        darks=_darks_from_dict(seq.get("darks") or {}),
         processing=processing or Processing(),
         created_by=created_by,
         created_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -337,8 +462,19 @@ def summary(plan: Plan) -> str:
     for i, t in enumerate(plan.targets, 1):
         window = f"{t.start or 'dusk'} -> {t.end or 'done'}"
         exps = ", ".join(f"{e.filter} {e.exposure:g}s x{e.count}" for e in t.exposures)
-        lines.append(f"{i}. {t.name}  rot {t.rotation:g} deg  [{window}]  {exps}")
-    lines.append(f"Flats: {'%d per set' % plan.flats.count if plan.flats.enabled else 'off'}")
+        if t.cycle:
+            exps = f"cycles of ({exps}), dither each cycle"
+        stops = [f"{t.max_frames} frames" if t.max_frames else None,
+                 f"{t.max_hours:g} h" if t.max_hours else None,
+                 f"next target above {t.next_target_altitude:g} deg" if t.next_target_altitude is not None else None]
+        stops = [s for s in stops if s]
+        limit = f"  stop at {' or '.join(stops)}" if stops else ""
+        lines.append(f"{i}. {t.name}  rot {t.rotation:g} deg  [{window}]  {exps}{limit}")
+    if plan.targets:
+        lines.append(f"Flats: {'%d per set' % plan.flats.count if plan.flats.enabled else 'off'}")
+    if plan.darks.sets:
+        text = describe_darks(plan.darks)
+        lines.append(text[0].upper() + text[1:])
     return "\n".join(lines)
 
 

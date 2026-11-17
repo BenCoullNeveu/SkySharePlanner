@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "night": "2026-11-11",
+  "client": "Bad Plan",
+  "created_by": "discord",
+  "created_utc": "2026-11-08T21:00:00Z",
+  "targets": [
+    {
+      "name": "M 31 Bad Plan",
+      "ra": "00:42:44.3",
+      "dec": "+41:16:09",
+      "rotation": 0,
+      "start": null,
+      "end": null,
+      "cycle": true,
+      "max_frames": 0,
+      "exposures": [
+        { "filter": "L", "exposure": 60, "count": 3, "gain": 100 },
+        { "filter": "R", "exposure": 60, "count": 1, "gain": 100 }
+      ]
+    },
+    {
+      "name": "M 81 Bad Plan",
+      "ra": "09:55:33.2",
+      "dec": "+69:03:55",
+      "rotation": 0,
+      "start": null,
+      "end": null,
+      "next_target_altitude": 40,
+      "exposures": [
+        { "filter": "G", "exposure": 60, "count": 5, "gain": 100 }
+      ]
+    }
+  ],
+  "flats": { "enabled": true, "count": 20 },
+  "processing": { "enabled": true, "triage": "send", "postprocess": null, "export": true }
+}
