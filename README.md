@@ -229,7 +229,7 @@ Settings on **SkyShare: Load Plan** (saved in the template):
 |---|---|---|
 | Stop below … ° altitude | 20 | Altitude condition on each target's `EXPOSURES` |
 | Autofocus at start | on | *Run Autofocus* after centering each target |
-| Dither every … frames | 1 | `AfterExposures` on each Smart Exposure's dither trigger; 0 removes it. Cycle-mode targets ignore this and dither once per cycle. |
+| Dither every … frames | 1 | `AfterExposures` on each Smart Exposure's dither trigger (0 = never). Cycle-mode targets ignore this: their Smart Exposures get dither every 0, and a Dither instruction at the end of the cycle dithers on every iteration. |
 
 Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the saved template never accumulates old targets.
 

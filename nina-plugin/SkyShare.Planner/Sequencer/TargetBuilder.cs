@@ -44,9 +44,9 @@ namespace SkyShare.Planner.Sequencer {
     ///          ├─ cond: SkyShare: Target Limits ← only if max_frames / max_hours / next_target_altitude
     ///          ├─ Smart Exposure per plan exposure
     ///          │    by-filter: count = total frames, dither every N frames
-    ///          │    cycle:     count = frames per cycle, no dither inside
+    ///          │    cycle:     count = frames per cycle, dither every 0 (none inside)
     ///          │    (+ Target Limits, so limits are checked between frames)
-    ///          └─ Dither                    ← cycle mode only: once per cycle
+    ///          └─ Dither                    ← cycle mode only: every iteration of the cycle
     ///
     /// Cycle mode (plan "cycle": true) repeats EXPOSURES until a limit, the altitude
     /// limit, the end time or dawn stops it. E.g. L×3 R×1 G×1 B×1 = 6 frames, dither, repeat.
@@ -188,17 +188,17 @@ namespace SkyShare.Planner.Sequencer {
 
                 Single(se.Conditions.OfType<LoopCondition>()).Iterations = e.Count;
 
-                // Cycle mode dithers once per cycle (below), never between frames.
-                var dither = se.Triggers.OfType<DitherAfterExposures>().FirstOrDefault();
-                if (!t.Cycle && options.DitherEvery > 0 && dither != null) dither.AfterExposures = options.DitherEvery;
-                else if (dither != null) se.Remove(dither);
+                // Keep the dither trigger so it shows in NINA. By filter: every N frames.
+                // Cycle: 0 (never) — the cycle dithers once per iteration (below), not between frames.
+                var dither = Single(se.Triggers.OfType<DitherAfterExposures>());
+                dither.AfterExposures = t.Cycle ? 0 : options.DitherEvery;
 
                 if (limits != null) se.Add((ISequenceCondition)limits.Clone()); // checked between frames
 
                 exposures.Add(se);
             }
 
-            if (t.Cycle) exposures.Add(new Dither(guider, profile));
+            if (t.Cycle) exposures.Add(new Dither(guider, profile)); // last item: runs once per cycle iteration
             SequenceTree.ApplyNinaMetadata(block); // names + icons, as if NINA had created the items
             return block;
         }
