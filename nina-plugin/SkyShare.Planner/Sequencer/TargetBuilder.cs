@@ -34,7 +34,8 @@ namespace SkyShare.Planner.Sequencer {
     ///
     ///   DSO container "▶ name"        ← name, J2000 coords, position angle
     ///     ├─ Wait for Time             ← only if plan "start"
-    ///     ├─ Center and Rotate         (plain Center if no rotator is connected)
+    ///     ├─ Slew, Center and Rotate   (Slew and Center if no rotator in the profile). Every target:
+    ///     │    NINA only moves the rotator if the solved angle is outside its rotation tolerance
     ///     ├─ SkyShare: Record Rotation
     ///     ├─ Run Autofocus             ← if BuildOptions.AutofocusAtStart
     ///     └─ EXPOSURES
@@ -135,7 +136,10 @@ namespace SkyShare.Planner.Sequencer {
             }
 
             // --- where --------------------------------------------------------
-            ISequenceItem center = rotator.GetInfo().Connected
+            // Blocks are built at Load Plan, before STARTUP connects equipment, so
+            // trust the profile's rotator too, not just a live connection.
+            var hasRotator = rotator.GetInfo().Connected || profile.ActiveProfile.RotatorSettings.Id != "No_Device";
+            ISequenceItem center = hasRotator
                 ? new CenterAndRotate(profile, telescope, imaging, rotator, filterWheel, guider,
                                       dome, domeFollower, plateSolverFactory, windowServiceFactory)
                 : new Center(profile, telescope, imaging, filterWheel, guider,

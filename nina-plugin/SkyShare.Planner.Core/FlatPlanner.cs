@@ -32,7 +32,8 @@ namespace SkyShare.Planner.Core {
     ///    position recorded while imaging that target.
     ///  - Without a rotator the camera is still at the LAST target's orientation, so
     ///    only that group is taken; the rest are reported as skipped.
-    ///  - The last target's group is always first (no rotator move needed).
+    ///  - The last target's group is always first (no rotator move needed). So with
+    ///    one target, or every target at the same rotation, flats never move the rotator.
     /// </summary>
     public static class FlatPlanner {
         public const double RotationTolerance = 0.5; // degrees

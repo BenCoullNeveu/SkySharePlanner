@@ -201,6 +201,24 @@ namespace SkyShare.Planner.Tests {
             var fp = FlatPlanner.Plan(TwoTargets(359.8), BothRan(), hasRotator: false);
             Assert.That(fp.Groups, Has.Count.EqualTo(1));
         }
+
+        [Test]
+        public void Same_rotation_with_rotator_never_moves_rotator() {
+            var fp = FlatPlanner.Plan(TwoTargets(0.2), BothRan(), hasRotator: true);
+            Assert.That(fp.Groups.Single().MechanicalPosition, Is.Null);
+            var preview = FlatPlanner.Preview(TwoTargets(0.2), hasRotator: true);
+            Assert.That(preview.Groups.Single().MechanicalPosition, Is.Null);
+            Assert.That(preview.Groups.Single().RotatorPending, Is.False);
+        }
+
+        [Test]
+        public void Single_target_with_rotator_never_moves_rotator() {
+            var plan = TwoTargets(35);
+            plan.Targets.RemoveAt(1);
+            var fp = FlatPlanner.Plan(plan, new Dictionary<int, TargetRunRecord> { [0] = new(true, 10) }, hasRotator: true);
+            Assert.That(fp.Groups.Single().MechanicalPosition, Is.Null);
+            Assert.That(FlatPlanner.Preview(plan, hasRotator: true).Groups.Single().RotatorPending, Is.False);
+        }
     }
 
     public class SessionManifestTests {

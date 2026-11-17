@@ -171,7 +171,7 @@ Each generated target block looks like this:
 ```text
 ▶ M 31  (Deep Sky Object container: name, J2000 coords, position angle)
 ├─ Wait for Time                   ← only if the plan has "start"
-├─ Center and Rotate               (plain Center if no rotator is connected)
+├─ Slew, Center and Rotate         (Slew and Center if no rotator in the profile)
 ├─ SkyShare: Record Rotation       (no-op without a rotator)
 ├─ Run Autofocus                   ← if "Autofocus at start" is ticked
 └─ EXPOSURES
@@ -217,7 +217,7 @@ And each flats block:
 | Plan field | Written to |
 |---|---|
 | `name`, `ra`, `dec` | DSO container `Target.TargetName`, `Target.InputCoordinates` (J2000). Center and the altitude condition take them from the container. |
-| `rotation` | `Target.PositionAngle`, used by *Center and Rotate* |
+| `rotation` | `Target.PositionAngle`, used by *Slew, Center and Rotate*. Every target runs it, so a target still gets rotated if an earlier one was clouded out; NINA only moves the rotator when the solved angle is outside *Options → Plate Solving → Rotation tolerance* (about 1° keeps calibration consistent). A one-rotation night's flats need no rotator move. |
 | `start` / `end` | *Wait for Time* / *Loop until Time* (plain clock time). Left out if `null`. |
 | `exposures[]` | one Smart Exposure per entry: `SwitchFilter.Filter`, `TakeExposure.ExposureTime / Gain / Offset / Binning`, `LoopCondition.Iterations` |
 | `flats.count` | `LoopCondition.Iterations` inside each Trained Flat Exposure |
@@ -288,7 +288,7 @@ flowchart TD
     B -- no --> D[Remove old ▶ blocks]
     D --> E[For each plan target, in order]
     E --> F[New DSO container:<br/>name, J2000 coords, position angle]
-    F --> G[Wait for Time if start,<br/>Center / Center and Rotate,<br/>Record Rotation, Autofocus]
+    F --> G[Wait for Time if start,<br/>Slew and Center / Slew, Center and Rotate,<br/>Record Rotation, Autofocus]
     G --> H[EXPOSURES: loop once,<br/>altitude limit, Loop until Time if end]
     H --> K[Smart Exposure per exposure:<br/>filter from profile, exposure, gain, offset, binning, count, dither]
     K --> L[Register block → target index]
