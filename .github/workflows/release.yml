@@ -1,0 +1,55 @@
+# Push a tag like v0.2.0 to build the NINA plugin, wrap it in an installer
+# and publish both to a GitHub Release:
+#   git tag v0.2.0 && git push origin v0.2.0
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Set version from tag
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Tag must look like v1.2.3 (got '${{ github.ref_name }}')" }
+          "VERSION=$v" >> $env:GITHUB_ENV
+          # NINA shows AssemblyVersion as the plugin version, so stamp it from the tag
+          $f = 'nina-plugin/SkyShare.Planner/Properties/AssemblyInfo.cs'
+          (Get-Content $f) -replace 'Assembly(File)?Version\("[^"]*"\)', ('Assembly$1Version("' + $v + '.0")') | Set-Content $f
+
+      - name: Test
+        run: dotnet test nina-plugin/SkyShare.Planner.Tests -c Release
+
+      - name: Build plugin
+        run: dotnet build nina-plugin/SkyShare.Planner/SkyShare.Planner.csproj -c Release
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" installer\SkySharePlanner.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+          # Plain zip too, for manual installs
+          Compress-Archive -Path nina-plugin\SkyShare.Planner\bin\Release\net8.0-windows\SkyShare.Planner.dll `
+                           -DestinationPath "dist\SkySharePlanner-$env:VERSION.zip"
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' (Get-ChildItem dist\*).FullName `
+            --title "SkyShare Planner $env:VERSION" --generate-notes
