@@ -45,7 +45,8 @@ namespace SkyShare.Planner.Core {
             NightPlan plan,
             IEnumerable<string>? profileFilters = null,
             bool hasRotator = false,
-            DateOnly? expectedNight = null) {
+            DateOnly? expectedNight = null,
+            FilterResolver? filterResolver = null) {
 
             var issues = new List<PlanIssue>();
             void Err(string m) => issues.Add(new PlanIssue(Severity.Error, m));
@@ -67,7 +68,9 @@ namespace SkyShare.Planner.Core {
             if (plan.Targets.Select(t => t.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Targets.Count)
                 Err("target names must be unique (they are SkyStack folder names)");
 
-            var filters = profileFilters?.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // Filters are matched by meaning, not spelling: plan "H" is fine for a profile filter "Ha 7nm".
+            var filters = profileFilters?.ToList();
+            var resolver = filterResolver ?? FilterResolver.Default;
 
             for (int i = 0; i < plan.Targets.Count; i++) {
                 var t = plan.Targets[i];
@@ -94,7 +97,7 @@ namespace SkyShare.Planner.Core {
                     if (e.Count is < 1 or > 2000) Err($"{et}: count must be 1-2000");
                     if (e.Gain < -1 || e.Offset < -1) Err($"{et}: gain/offset must be >= -1");
                     if (e.Binning is < 1 or > 4) Err($"{et}: binning must be 1-4");
-                    if (filters is not null && !filters.Contains(e.Filter))
+                    if (filters is not null && resolver.Resolve(e.Filter, filters) is null)
                         Err($"{et}: filter not in NINA profile (have: {string.Join(", ", filters)})");
                 }
             }

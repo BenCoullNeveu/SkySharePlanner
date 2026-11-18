@@ -20,6 +20,7 @@ using NINA.Sequencer.SequenceItem.Imaging;
 using NINA.Sequencer.SequenceItem.Platesolving;
 using NINA.Sequencer.SequenceItem.Utility;
 using NINA.Sequencer.Trigger.Guider;
+using NINA.Sequencer.Trigger.Platesolving;
 using NINA.Sequencer.Utility.DateTimeProvider;
 using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -33,6 +34,7 @@ namespace SkyShare.Planner.Sequencer {
     /// Builds one plan target as a Deep Sky Object container, from scratch:
     ///
     ///   DSO container "▶ name"        ← name, J2000 coords, position angle
+    ///     trigger: Center After Drift  ← every target; re-centers beyond BuildOptions.CenterDriftArcMinutes
     ///     ├─ Wait for Time             ← only if plan "start"
     ///     ├─ Slew, Center and Rotate   (Slew and Center if no rotator in the profile). Every target:
     ///     │    NINA only moves the rotator if the solved angle is outside its rotation tolerance
@@ -44,8 +46,8 @@ namespace SkyShare.Planner.Sequencer {
     ///          ├─ cond: Loop until Time     ← only if plan "end"
     ///          ├─ cond: SkyShare: Target Limits ← only if max_frames / max_hours / next_target_altitude
     ///          ├─ Smart Exposure per plan exposure
-    ///          │    by-filter: count = total frames, dither every N frames
-    ///          │    cycle:     count = frames per cycle, dither every 0 (none inside)
+    ///          │    by-filter: count = total frames, dither every BuildOptions.DitherEvery frames
+    ///          │    cycle:     count = frames per cycle, always dither every 0 (DitherEvery ignored)
     ///          │    (+ Target Limits, so limits are checked between frames)
     ///          └─ Dither                    ← cycle mode only: every iteration of the cycle
     ///
@@ -82,6 +84,7 @@ namespace SkyShare.Planner.Sequencer {
         private readonly IFramingAssistantVM framingAssistant;
         private readonly IApplicationMediator application;
         private readonly IPlanetariumFactory planetariumFactory;
+        private readonly IApplicationStatusMediator applicationStatus;
 
         public TargetBuilder(
             IProfileService profile, ITelescopeMediator telescope, IImagingMediator imaging,
@@ -90,7 +93,8 @@ namespace SkyShare.Planner.Sequencer {
             IWindowServiceFactory windowServiceFactory, IImageHistoryVM imageHistory, ICameraMediator camera,
             IFocuserMediator focuser, IAutoFocusVMFactory autoFocusVMFactory, IImageSaveMediator imageSave,
             INighttimeCalculator nighttimeCalculator, IFramingAssistantVM framingAssistant,
-            IApplicationMediator application, IPlanetariumFactory planetariumFactory) {
+            IApplicationMediator application, IPlanetariumFactory planetariumFactory,
+            IApplicationStatusMediator applicationStatus) {
             this.profile = profile;
             this.telescope = telescope;
             this.imaging = imaging;
@@ -110,6 +114,7 @@ namespace SkyShare.Planner.Sequencer {
             this.framingAssistant = framingAssistant;
             this.application = application;
             this.planetariumFactory = planetariumFactory;
+            this.applicationStatus = applicationStatus;
         }
 
         /// <param name="next">The following plan target, for next_target_altitude; null for the last one.</param>
@@ -146,6 +151,14 @@ namespace SkyShare.Planner.Sequencer {
                              dome, domeFollower, plateSolverFactory, windowServiceFactory);
             block.Add(center);
             block.Add(new RecordRotation(rotator)); // no-op without a rotator
+
+            // Re-center whenever a plate solve of the latest frame is off by more than the threshold.
+            // On the DSO container, so it covers all of this target's exposures; it takes the
+            // container's coordinates (Inherited) when attached.
+            block.Add(new CenterAfterDriftTrigger(profile, telescope, filterWheel, guider, imaging, camera,
+                                                  dome, domeFollower, imageSave, applicationStatus) {
+                DistanceArcMinutes = options.CenterDriftArcMinutes,
+            });
 
             if (options.AutofocusAtStart)
                 block.Add(new RunAutofocus(profile, imageHistory, camera, filterWheel, focuser, autoFocusVMFactory));
@@ -192,8 +205,9 @@ namespace SkyShare.Planner.Sequencer {
 
                 Single(se.Conditions.OfType<LoopCondition>()).Iterations = e.Count;
 
-                // Keep the dither trigger so it shows in NINA. By filter: every N frames.
-                // Cycle: 0 (never) — the cycle dithers once per iteration (below), not between frames.
+                // Keep the dither trigger so it shows in NINA. By filter: every DitherEvery frames.
+                // Cycle: always 0, whatever DitherEvery says - the cycle dithers once per iteration
+                // (Dither instruction below), not between frames.
                 var dither = Single(se.Triggers.OfType<DitherAfterExposures>());
                 dither.AfterExposures = t.Cycle ? 0 : options.DitherEvery;
 

@@ -53,11 +53,13 @@ namespace SkyShare.Planner.Sequencer {
             IWindowServiceFactory windowServiceFactory, IImageHistoryVM imageHistoryVM, ICameraMediator cameraMediator,
             IFocuserMediator focuserMediator, IAutoFocusVMFactory autoFocusVMFactory, IImageSaveMediator imageSaveMediator,
             INighttimeCalculator nighttimeCalculator, IFramingAssistantVM framingAssistantVM,
-            IApplicationMediator applicationMediator, IPlanetariumFactory planetariumFactory)
+            IApplicationMediator applicationMediator, IPlanetariumFactory planetariumFactory,
+            IApplicationStatusMediator applicationStatusMediator)
             : this(new TargetBuilder(profileService, telescopeMediator, imagingMediator, rotatorMediator,
                 filterWheelMediator, guiderMediator, domeMediator, domeFollower, plateSolverFactory,
                 windowServiceFactory, imageHistoryVM, cameraMediator, focuserMediator, autoFocusVMFactory,
-                imageSaveMediator, nighttimeCalculator, framingAssistantVM, applicationMediator, planetariumFactory)) {
+                imageSaveMediator, nighttimeCalculator, framingAssistantVM, applicationMediator, planetariumFactory,
+                applicationStatusMediator)) {
             FrameCounter.Attach(imageSaveMediator); // counts saved light frames per target
         }
 

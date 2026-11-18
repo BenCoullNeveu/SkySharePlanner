@@ -386,4 +386,57 @@ namespace SkyShare.Planner.Tests {
             Assert.That(done.ToJson(), Does.Contain("\"darks\"").And.Contain("\"frames_total\": 71"));
         }
     }
+
+    public class FilterResolverTests {
+        static readonly string[] Ours = { "H", "S", "O", "L", "R", "G", "B" };
+        static readonly string[] Other = { "Ha 7nm", "OIII 7nm", "SII 7nm", "Lum", "Red", "Green", "Blue", "Hb" };
+
+        [TestCase("H", "H", "Ha 7nm")]
+        [TestCase("Ha", "H", "Ha 7nm")]
+        [TestCase("h-alpha", "H", "Ha 7nm")]
+        [TestCase("HA 3nm", "H", "Ha 7nm")]
+        [TestCase("OIII", "O", "OIII 7nm")]
+        [TestCase("Sulphur", "S", "SII 7nm")]
+        [TestCase("Luminance", "L", "Lum")]
+        [TestCase("Red", "R", "Red")]
+        [TestCase("b", "B", "Blue")]
+        public void Resolves_by_meaning_not_spelling(string requested, string ours, string other) {
+            Assert.That(FilterResolver.Default.Resolve(requested, Ours), Is.EqualTo(ours));
+            Assert.That(FilterResolver.Default.Resolve(requested, Other), Is.EqualTo(other));
+        }
+
+        [Test]
+        public void Unknown_and_different_filters_do_not_match() {
+            Assert.That(FilterResolver.Default.Resolve("Hb", Ours), Is.Null);       // H-beta is not H-alpha
+            Assert.That(FilterResolver.Default.Resolve("Filter 2", Ours), Is.Null);
+            Assert.That(FilterResolver.Default.Resolve("Filter 2", new[] { "Filter 1", "Filter 2" }), Is.EqualTo("Filter 2"));
+        }
+
+        [Test]
+        public void Alias_file_adds_spellings() {
+            var dir = Directory.CreateTempSubdirectory().FullName;
+            File.WriteAllText(Path.Combine(dir, FilterResolver.AliasFileName), "{\"aliases\": {\"H\": [\"Antlia Ha\"]}}");
+            Assert.That(FilterResolver.Load(dir).Resolve("H", new[] { "Antlia Ha", "R" }), Is.EqualTo("Antlia Ha"));
+            Assert.That(FilterResolver.Load(Path.Combine(dir, "missing")).Resolve("Ha", Ours), Is.EqualTo("H"));
+        }
+
+        [Test]
+        public void Validator_accepts_aliases_and_ResolveAll_renames_to_profile_names() {
+            var plan = new NightPlan {
+                SchemaVersion = PlanParser.SupportedSchemaVersion, Night = "2026-11-20",
+                Targets = { new PlanTarget { Name = "M 31", Ra = "00:42:44", Dec = "+41:16:09",
+                    Exposures = { new PlanExposure { Filter = "H", Exposure = 300, Count = 5 },
+                                  new PlanExposure { Filter = "L", Exposure = 60, Count = 5 } } } },
+            };
+            var errors = PlanValidator.Validate(plan, Other).Where(i => i.Severity == Severity.Error).ToList();
+            Assert.That(errors, Is.Empty, string.Join("; ", errors.Select(e => e.Message)));
+
+            var renames = FilterResolver.Default.ResolveAll(plan, Other);
+            Assert.That(plan.Targets[0].Exposures.Select(e => e.Filter), Is.EqualTo(new[] { "Ha 7nm", "Lum" }));
+            Assert.That(renames, Has.Count.EqualTo(2));
+
+            var bad = PlanValidator.Validate(plan, new[] { "R", "G", "B" }).Where(i => i.Severity == Severity.Error);
+            Assert.That(bad.Select(e => e.Message), Has.Some.Contains("filter not in NINA profile"));
+        }
+    }
 }

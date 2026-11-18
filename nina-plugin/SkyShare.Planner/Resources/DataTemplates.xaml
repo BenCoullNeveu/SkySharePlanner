@@ -42,8 +42,14 @@
                                   IsChecked="{Binding AutofocusAtStart}" />
                         <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Dither every" />
                         <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding DitherEvery}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="frames (0 = off)" />
+                                 Text="{Binding DitherEvery}"
+                                 ToolTip="Fixed-count targets only. Cycle targets always dither once per cycle." />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="frames (fixed-count targets; 0 = off)" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Center drift threshold" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding CenterDriftThreshold}"
+                                 ToolTip="Center After Drift on every target: re-center when the target has drifted more than this." />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="arcmin" />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"
                                Text="{Binding LoadedSummary}" />

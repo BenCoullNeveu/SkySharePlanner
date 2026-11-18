@@ -51,6 +51,7 @@ namespace SkyShare.Planner.Sequencer {
             MinAltitude = copyMe.MinAltitude;
             AutofocusAtStart = copyMe.AutofocusAtStart;
             DitherEvery = copyMe.DitherEvery;
+            CenterDriftThreshold = copyMe.CenterDriftThreshold;
         }
 
         // ---- settings (saved in the template) --------------------------------
@@ -83,11 +84,19 @@ namespace SkyShare.Planner.Sequencer {
         public bool AutofocusAtStart { get => autofocusAtStart; set { autofocusAtStart = value; RaisePropertyChanged(); } }
 
         private int ditherEvery = 1;
-        /// <summary>Dither after this many frames of each filter. 0 = never.</summary>
+        /// <summary>
+        /// Fixed-count targets only: dither after this many frames of each filter (0 = never).
+        /// Cycle targets always use dither-after-0 on their exposures and dither once per cycle.
+        /// </summary>
         [JsonProperty]
         public int DitherEvery { get => ditherEvery; set { ditherEvery = Math.Max(0, value); RaisePropertyChanged(); } }
 
-        private BuildOptions Options => new(MinAltitude, AutofocusAtStart, DitherEvery);
+        private double centerDriftThreshold = 5;
+        /// <summary>Center After Drift on every target: re-center beyond this drift (arcminutes).</summary>
+        [JsonProperty]
+        public double CenterDriftThreshold { get => centerDriftThreshold; set { centerDriftThreshold = Math.Clamp(value, 0.1, 600); RaisePropertyChanged(); } }
+
+        private BuildOptions Options => new(MinAltitude, AutofocusAtStart, DitherEvery, CenterDriftThreshold);
 
         // ---- shown in the UI after running ------------------------------------
 
@@ -122,9 +131,10 @@ namespace SkyShare.Planner.Sequencer {
                 throw;
             }
 
-            var filters = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Select(f => f.Name);
+            var filters = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Select(f => f.Name).ToList();
             var hasRotator = rotatorMediator.GetInfo().Connected;
-            var issues = PlanValidator.Validate(plan, filters, hasRotator, night);
+            var filterResolver = FilterResolver.Load(PlansDirectory); // + Plansilter_aliases.json
+            var issues = PlanValidator.Validate(plan, filters, hasRotator, night, filterResolver);
 
             foreach (var w in issues.Where(i => i.Severity == Severity.Warning))
                 StatusReporter.Warn("plan_warning", w.Message);
@@ -134,7 +144,14 @@ namespace SkyShare.Planner.Sequencer {
                 Fail("plan_invalid", $"{Path.GetFileName(path)}:\n- " + string.Join("\n- ", errors.Select(e => e.Message)));
             }
 
-            PlanStore.Set(plan, path, Options);
+            // Plan filters -> this profile's names (e.g. "H" -> "Ha 7nm"), so target blocks, flats
+            // and the session manifest all use the real filter names.
+            var renames = filterResolver.ResolveAll(plan, filters);
+
+            PlanStore.Set(plan, path, Options); // status events go next to this plan from here on
+            if (renames.Count > 0)
+                StatusReporter.Report("filters_mapped", "filters matched to the NINA profile: " +
+                                      string.Join(", ", renames.Select(r => $"{r.From} → {r.To}")));
             LoadedSummary = $"{Path.GetFileName(path)} - {plan.Targets.Count} target(s)" +
                             (plan.Targets.Count > 0 ? ": " + string.Join(", ", plan.Targets.Select(t => t.Name)) : "") +
                             (plan.Darks.Sets.Count > 0 ? "; " + DarkPlanner.Describe(plan.Darks) : "");

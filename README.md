@@ -9,7 +9,7 @@ This replaces `NINASequenceGenerator.py`, which edited `TemplateSequence.json` a
 
 * handles multiple targets per night, in a fixed order that you control (no scheduler picking targets),
 * builds flats after imaging, only for the targets that actually ran, de-duplicated and grouped by camera orientation,
-* checks filter names against the live NINA profile and refuses a plan for the wrong night,
+* matches the plan's filters to the live NINA profile (by meaning, so `H` finds a filter called `Ha 7nm`; see *Filter names* below) and refuses a plan for the wrong night,
 * handles `$id`/`$ref` itself, because NINA does the saving and loading, so there is no renumbering,
 * reports progress back to Discord,
 * hands the night to SkyStack when it ends: a **session manifest** tells the compute server what was captured and what to run, and SkyStack starts the pipeline once the files have arrived ([§6](#6-hand-off-to-skystack)).
@@ -170,6 +170,7 @@ Each generated target block looks like this:
 
 ```text
 ▶ M 31  (Deep Sky Object container: name, J2000 coords, position angle)
+│  trigger: Center After Drift     ← every target; "Center drift threshold" (default 5′)
 ├─ Wait for Time                   ← only if the plan has "start"
 ├─ Slew, Center and Rotate         (Slew and Center if no rotator in the profile)
 ├─ SkyShare: Record Rotation       (no-op without a rotator)
@@ -189,7 +190,7 @@ Each generated target block looks like this:
 |---|---|---|
 | `exposures[].count` | total frames for that filter | frames of that filter **per cycle** |
 | Order | all L, then all R, … | L L L R G B, dither, L L L R G B, dither, … |
-| Dithering | every N frames (*Dither every* on Load Plan) | once at the end of each cycle |
+| Dithering | every N frames (*Dither every* on Load Plan) | always once at the end of each cycle (Smart Exposures dither after 0; *Dither every* is ignored) |
 | Ends when | the list is done, or a limit is hit | a limit is hit |
 
 For LRGB at 3 L per R, G and B, use `"cycle": true` with counts L 3, R 1, G 1, B 1. NINA applies your profile's filter focus offsets on every filter change, so cycling doesn't need a refocus each time.
@@ -229,7 +230,10 @@ Settings on **SkyShare: Load Plan** (saved in the template):
 |---|---|---|
 | Stop below … ° altitude | 20 | Altitude condition on each target's `EXPOSURES` |
 | Autofocus at start | on | *Run Autofocus* after centering each target |
-| Dither every … frames | 1 | `AfterExposures` on each Smart Exposure's dither trigger (0 = never). Cycle-mode targets ignore this: their Smart Exposures get dither every 0, and a Dither instruction at the end of the cycle dithers on every iteration. |
+| Dither every … frames | 1 | Fixed-count (by-filter) targets only: `AfterExposures` on each Smart Exposure's dither trigger (0 = never). Cycle targets always get dither after 0 on their Smart Exposures, and a Dither instruction at the end of the cycle dithers on every iteration. |
+| Center drift threshold … arcmin | 5 | *Center After Drift* trigger on every target's container: after a frame, if the plate-solved position is more than this far from the target, NINA re-centers before continuing. |
+
+**Filter names.** Plans store a standard name (`H`, `O`, `S`, `L`, `R`, `G`, `B`). *Load Plan* maps each one to the active profile's own name: exact name, then the same name ignoring case/spaces/dashes and a bandwidth suffix (`Ha 7nm`), then any known alias of the same filter (Ha, H-alpha, OIII, O3, SII, Lum, Luminance, Clear, Red, …). The mapping is posted as a `filters_mapped` status event. Extra spellings go in `Plansilter_aliases.json` (`{"aliases": {"H": ["My Ha"]}}`), which the Discord bot writes and also reads. Code: `SkyShare.Planner.Core/FilterResolver.cs` and the bot's `filter_names.py` (same table and rules).
 
 Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the saved template never accumulates old targets.
 
@@ -497,7 +501,7 @@ In the Flat Wizard, train every filter + gain + binning combination clients can 
 
 1. Open your current `TemplateSequence.json` in NINA.
 2. In **Start**, add **SkyShare: Load Plan** as the first item. Set the plans folder to `…\Dropbox\SkyShare Data\Plans` and the error behaviour to **Abort**.
-   On the same item, check the target settings: *stop below* altitude (your old template used 20°), *Autofocus at start*, and *Dither every* N frames.
+   On the same item, check the target settings: *stop below* altitude (your old template used 20°), *Autofocus at start*, *Dither every* N frames (fixed-count targets) and the *Center drift threshold* (5′).
 3. In **When Safe**, delete `TEMPLATE DSO` and add **SkyShare Targets** in its place. Leave it empty. Keep the triggers on *When Safe*; they apply to the generated targets.
 4. In **FLATS**, delete the old `FLAT INSTRUCTIONS` container and add **SkyShare Flats** in its place. Leave it empty.
    Optional: add **SkyShare Darks** in the End area, after your cover/park steps (see *Darks* in §3). Leave it empty.
@@ -550,7 +554,7 @@ Build the planned "Plan" page with the same module: a form, then `plan_from_wiza
 | No plan for tonight after the sync wait | *Load Plan* fails, the sequence aborts, and `plan_missing` is reported |
 | Two plans for the same night | Refused by `write_plan`, and *Load Plan* fails if one arrives anyway |
 | Plan dated for another night | *Load Plan* fails (protects against a stale file) |
-| Filter not in the NINA profile | Rejected by the bot (if `KNOWN_FILTERS` is up to date), and *Load Plan* fails |
+| Filter not in the NINA profile | Rejected by the bot, and *Load Plan* fails. Names are matched by meaning first (`H` = `Ha` = `H-alpha 7nm`, `O` = `OIII`, `L` = `Lum`, …) |
 | Different rotations, no rotator | Warned at creation and at dusk; flats only for the final orientation |
 | Target never got a frame (clouds, altitude) | No flats taken for it |
 | Weather interruption mid-target | "When Safe" loops and resumes at the interrupted target, with no rebuild |
