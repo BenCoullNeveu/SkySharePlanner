@@ -52,6 +52,13 @@ namespace SkyShare.Planner.Sequencer {
             AutofocusAtStart = copyMe.AutofocusAtStart;
             DitherEvery = copyMe.DitherEvery;
             CenterDriftThreshold = copyMe.CenterDriftThreshold;
+            SendNightPreview = copyMe.SendNightPreview;
+            SlewCenterMinutes = copyMe.SlewCenterMinutes;
+            AutofocusMinutes = copyMe.AutofocusMinutes;
+            AutofocusEveryMinutes = copyMe.AutofocusEveryMinutes;
+            DitherSeconds = copyMe.DitherSeconds;
+            FrameOverheadSeconds = copyMe.FrameOverheadSeconds;
+            MeridianFlipMinutes = copyMe.MeridianFlipMinutes;
         }
 
         // ---- settings (saved in the template) --------------------------------
@@ -95,6 +102,47 @@ namespace SkyShare.Planner.Sequencer {
         /// <summary>Center After Drift on every target: re-center beyond this drift (arcminutes).</summary>
         [JsonProperty]
         public double CenterDriftThreshold { get => centerDriftThreshold; set { centerDriftThreshold = Math.Clamp(value, 0.1, 600); RaisePropertyChanged(); } }
+
+        // Night preview: a clear-sky estimate of the night, posted with an altitude chart.
+        // These overheads only affect the estimate, not the sequence.
+
+        private bool sendNightPreview = true;
+        [JsonProperty]
+        public bool SendNightPreview { get => sendNightPreview; set { sendNightPreview = value; RaisePropertyChanged(); } }
+
+        private double slewCenterMinutes = 3;
+        /// <summary>Slew, plate solve, center and rotate, per target.</summary>
+        [JsonProperty]
+        public double SlewCenterMinutes { get => slewCenterMinutes; set { slewCenterMinutes = Math.Clamp(value, 0, 60); RaisePropertyChanged(); } }
+
+        private double autofocusMinutes = 4;
+        [JsonProperty]
+        public double AutofocusMinutes { get => autofocusMinutes; set { autofocusMinutes = Math.Clamp(value, 0, 60); RaisePropertyChanged(); } }
+
+        private double autofocusEveryMinutes = 60;
+        /// <summary>How often the template's autofocus triggers fire on average (0 = only at target start).</summary>
+        [JsonProperty]
+        public double AutofocusEveryMinutes { get => autofocusEveryMinutes; set { autofocusEveryMinutes = Math.Clamp(value, 0, 1440); RaisePropertyChanged(); } }
+
+        private double ditherSeconds = 30;
+        /// <summary>Dither plus guiding settle.</summary>
+        [JsonProperty]
+        public double DitherSeconds { get => ditherSeconds; set { ditherSeconds = Math.Clamp(value, 0, 600); RaisePropertyChanged(); } }
+
+        private double frameOverheadSeconds = 5;
+        /// <summary>Download and save, per frame.</summary>
+        [JsonProperty]
+        public double FrameOverheadSeconds { get => frameOverheadSeconds; set { frameOverheadSeconds = Math.Clamp(value, 0, 120); RaisePropertyChanged(); } }
+
+        private double meridianFlipMinutes = 5;
+        [JsonProperty]
+        public double MeridianFlipMinutes { get => meridianFlipMinutes; set { meridianFlipMinutes = Math.Clamp(value, 0, 60); RaisePropertyChanged(); } }
+
+        private EstimateSettings EstimateSettings => new(
+            MinAltitude, AutofocusAtStart, DitherEvery,
+            SlewCenterSeconds: SlewCenterMinutes * 60, AutofocusSeconds: AutofocusMinutes * 60,
+            AutofocusEveryMinutes: AutofocusEveryMinutes, DitherSeconds: DitherSeconds,
+            FrameOverheadSeconds: FrameOverheadSeconds, MeridianFlipSeconds: MeridianFlipMinutes * 60);
 
         private BuildOptions Options => new(MinAltitude, AutofocusAtStart, DitherEvery, CenterDriftThreshold);
 
@@ -188,6 +236,8 @@ namespace SkyShare.Planner.Sequencer {
                 darks = plan.Darks.Sets.Count,
                 warnings = issues.Where(i => i.Severity == Severity.Warning).Select(i => i.Message),
             });
+
+            if (SendNightPreview) await NightPreview.Publish(plan, path, profileService, EstimateSettings);
         }
 
         private static void Fail(string @event, string message) {

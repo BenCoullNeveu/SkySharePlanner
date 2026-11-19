@@ -51,6 +51,24 @@
                                  ToolTip="Center After Drift on every target: re-center when the target has drifted more than this." />
                         <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="arcmin" />
                     </StackPanel>
+                    <StackPanel Margin="0,4,0,0" Orientation="Horizontal"
+                                ToolTip="Clear-sky estimate of tonight, posted to Discord with an altitude chart. These overheads only affect the estimate.">
+                        <CheckBox VerticalAlignment="Center" Content="Night preview" IsChecked="{Binding SendNightPreview}" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="overheads: slew/center" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding SlewCenterMinutes}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min, autofocus" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding AutofocusMinutes}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min every" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding AutofocusEveryMinutes}"
+                                 ToolTip="How often your template's autofocus triggers fire on average. 0 = only at the start of each target." />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min, dither" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding DitherSeconds}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="s, per frame" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding FrameOverheadSeconds}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="s, meridian flip" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding MeridianFlipMinutes}" />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min" />
+                    </StackPanel>
                     <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"
                                Text="{Binding LoadedSummary}" />
                 </StackPanel>

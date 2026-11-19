@@ -25,7 +25,11 @@ Wire-up in skysharebot.py (both the wizard and the one-shot JSON path):
     @tasks.loop(seconds=30)
     async def post_plan_status():
         for ev in tailer.poll():
-            await discord_send(nightplan_channel, f"`{ev['event']}` {ev['message']}")
+            image = tailer.image_for(ev)          # night_estimate: altitude chart PNG
+            if image:
+                await nightplan_channel.send(night_estimate_text(ev), file=discord.File(image))
+            else:
+                await discord_send(nightplan_channel, f"`{ev['event']}` {ev['message']}")
     post_plan_status.start()
 """
 from __future__ import annotations
@@ -85,3 +89,16 @@ class StatusTailer:
                 except json.JSONDecodeError:
                     pass
         return events
+
+    def image_for(self, ev: dict) -> Path | None:
+        """The chart that goes with a night_estimate event, once Dropbox has synced it."""
+        name = (ev.get("data") or {}).get("image")
+        if ev.get("event") != "night_estimate" or not name:
+            return None
+        path = self.dir / name
+        return path if path.exists() else None
+
+
+def night_estimate_text(ev: dict) -> str:
+    """The plugin's ready-made Discord text for a night_estimate event."""
+    return (ev.get("data") or {}).get("markdown") or ev.get("message", "")

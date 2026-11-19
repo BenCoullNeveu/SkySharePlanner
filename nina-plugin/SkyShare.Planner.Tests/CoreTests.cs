@@ -439,4 +439,137 @@ namespace SkyShare.Planner.Tests {
             Assert.That(bad.Select(e => e.Message), Has.Some.Contains("filter not in NINA profile"));
         }
     }
+
+    public class NightEstimatorTests {
+        private static readonly Site Site = new(45.5, -73.6);
+        private static readonly TimeZoneInfo Zone = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
+        private static readonly EstimateSettings Fast = new(AutofocusEveryMinutes: 0);
+
+        private static NightPlan Plan(params PlanTarget[] targets) {
+            var p = new NightPlan { SchemaVersion = 1, Night = "2026-11-19" };
+            p.Targets.AddRange(targets);
+            return p;
+        }
+
+        // M 31: high in the evening in November
+        private static PlanTarget M31(params PlanExposure[] e) {
+            var t = new PlanTarget { Name = "M 31", Ra = "00:42:44", Dec = "+41:16:09" };
+            t.Exposures.AddRange(e.Length > 0 ? e : new[] { new PlanExposure { Filter = "L", Exposure = 120, Count = 10 } });
+            return t;
+        }
+
+        private static NightEstimate Run(NightPlan p, EstimateSettings? s = null) =>
+            NightEstimator.Estimate(p, Site, s ?? Fast, Zone);
+
+        [Test]
+        public void Twilight_times_are_plausible_for_november() {
+            var n = Run(Plan());
+            Assert.That(n.DarknessLabel, Is.EqualTo("astronomical"));
+            Assert.That(n.Sunset.TimeOfDay, Is.InRange(TimeSpan.Parse("16:00"), TimeSpan.Parse("16:45")));
+            Assert.That(n.Dusk.TimeOfDay, Is.InRange(TimeSpan.Parse("17:45"), TimeSpan.Parse("18:30")));
+            Assert.That(n.Dawn, Is.GreaterThan(n.Dusk));
+            Assert.That(n.Dawn.TimeOfDay, Is.InRange(TimeSpan.Parse("05:00"), TimeSpan.Parse("06:00")));
+            Assert.That(n.ImagingStart, Is.EqualTo(n.Dusk));
+        }
+
+        [Test]
+        public void Pole_star_altitude_is_the_latitude() =>
+            Assert.That(NightEstimator.Altitude(2.53, 89.26, Site, Zone, new DateTime(2026, 11, 19, 22, 0, 0)),
+                        Is.EqualTo(45.5).Within(1.0));
+
+        [Test]
+        public void Fixed_counts_finish_with_overheads_counted() {
+            var n = Run(Plan(M31()));
+            var t = n.Targets.Single();
+            Assert.That(t.Skipped, Is.False);
+            Assert.That(t.FrameCount, Is.EqualTo(10));
+            Assert.That(t.Outcome, Is.EqualTo("all planned frames taken"));
+            // 10 × 120 s + overheads, after slew/center + autofocus
+            Assert.That(t.ImagingStart, Is.EqualTo(n.Dusk.AddSeconds(180 + 240)));
+            var span = (t.End!.Value - t.ImagingStart!.Value).TotalSeconds;
+            Assert.That(span, Is.InRange(1200, 1200 + 10 * 5 + 10 + 9 * 30 + 1));
+        }
+
+        [Test]
+        public void Target_below_the_limit_when_its_turn_comes_is_skipped() {
+            // RA 12h is far below the horizon on a November evening
+            var low = new PlanTarget { Name = "Low", Ra = "12:00:00", Dec = "+10:00:00" };
+            low.Exposures.Add(new PlanExposure { Filter = "L", Exposure = 60, Count = 5 });
+            var t = Run(Plan(low)).Targets.Single();
+            Assert.That(t.Skipped, Is.True);
+            Assert.That(t.Outcome, Does.Contain("below 20°"));
+        }
+
+        [Test]
+        public void Second_target_starts_after_the_first() {
+            var n = Run(Plan(M31(), M31()));
+            Assert.That(n.Targets[1].ArriveTime, Is.EqualTo(n.Targets[0].End));
+            Assert.That(n.Finish, Is.EqualTo(n.Targets[1].End));
+        }
+
+        [Test]
+        public void End_time_stops_the_target() {
+            var t = M31(new PlanExposure { Filter = "L", Exposure = 300, Count = 100 });
+            t.End = "20:00";
+            var r = Run(Plan(t)).Targets.Single();
+            Assert.That(r.Outcome, Is.EqualTo("end time 20:00"));
+            Assert.That(r.End!.Value, Is.GreaterThanOrEqualTo(new DateTime(2026, 11, 19, 20, 0, 0)));
+            Assert.That(r.End!.Value, Is.LessThan(new DateTime(2026, 11, 19, 20, 6, 0))); // finishes the frame in progress
+        }
+
+        [Test]
+        public void Start_time_after_midnight_is_the_next_morning() {
+            var t = M31();
+            t.Start = "01:30";
+            var r = Run(Plan(t)).Targets.Single();
+            Assert.That(r.ArriveTime, Is.EqualTo(new DateTime(2026, 11, 20, 1, 30, 0)));
+        }
+
+        [Test]
+        public void Cycle_mode_runs_until_max_frames() {
+            var t = M31(new PlanExposure { Filter = "L", Exposure = 60, Count = 3 },
+                        new PlanExposure { Filter = "R", Exposure = 60, Count = 1 });
+            t.Cycle = true; t.MaxFrames = 10;
+            var r = Run(Plan(t)).Targets.Single();
+            Assert.That(r.FrameCount, Is.EqualTo(10));
+            Assert.That(r.Frames.Select(f => f.Frames), Is.EqualTo(new[] { 8, 2 })); // L L L R ×2, then L L
+            Assert.That(r.Outcome, Does.Contain("max_frames"));
+        }
+
+        [Test]
+        public void Cycle_without_limits_runs_until_it_sets_or_dawn() {
+            var t = M31(new PlanExposure { Filter = "L", Exposure = 300, Count = 1 });
+            t.Cycle = true;
+            var r = Run(Plan(t)).Targets.Single();
+            Assert.That(r.Outcome, Is.EqualTo("dropped below 20°").Or.EqualTo("dawn"));
+            Assert.That(r.FrameCount, Is.GreaterThan(50));
+        }
+
+        [Test]
+        public void Next_target_altitude_hands_over() {
+            var first = M31(new PlanExposure { Filter = "L", Exposure = 300, Count = 200 });
+            var m42 = new PlanTarget { Name = "M 42", Ra = "05:35:17", Dec = "-05:23:28" };
+            m42.Exposures.Add(new PlanExposure { Filter = "L", Exposure = 60, Count = 10 });
+            first.NextTargetAltitude = 30;
+            var n = Run(Plan(first, m42));
+            Assert.That(n.Targets[0].Outcome, Is.EqualTo("M 42 above 30°"));
+            Assert.That(NightEstimator.Altitude(5.588, -5.39, Site, Zone, n.Targets[0].End!.Value), Is.GreaterThanOrEqualTo(30));
+            Assert.That(n.Targets[1].Skipped, Is.False);
+        }
+
+        [Test]
+        public void Late_load_starts_from_now() {
+            var now = new DateTime(2026, 11, 19, 21, 0, 0);
+            var n = NightEstimator.Estimate(Plan(M31()), Site, Fast, Zone, notBefore: now);
+            Assert.That(n.ImagingStart, Is.EqualTo(now));
+        }
+
+        [Test]
+        public void Periodic_autofocus_adds_time() {
+            var t = M31(new PlanExposure { Filter = "L", Exposure = 300, Count = 30 });
+            var without = Run(Plan(t)).Targets.Single();
+            var with = Run(Plan(t), Fast with { AutofocusEveryMinutes = 60 }).Targets.Single();
+            Assert.That((with.End!.Value - without.End!.Value).TotalSeconds, Is.EqualTo(2 * 240).Within(240));
+        }
+    }
 }

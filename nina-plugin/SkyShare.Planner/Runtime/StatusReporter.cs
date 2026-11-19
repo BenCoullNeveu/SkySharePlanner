@@ -78,12 +78,38 @@ namespace SkyShare.Planner.Runtime {
             }
         }
 
-        private static async Task PostWebhookAsync(string content) {
+        /// <summary>
+        /// Progress with a picture: status file (data only) + webhook message with the
+        /// image attached. The message is posted as-is (it is already formatted).
+        /// </summary>
+        public static void ReportWithImage(string @event, string summary, string markdown, byte[]? png, string fileName, object? data = null) {
+            Logger.Info($"[SkyShare] {@event}: {summary}");
+            WriteStatusLine("info", @event, summary, data);
+            _ = PostWebhookAsync(markdown, png, fileName);
+        }
+
+        private static async Task PostWebhookAsync(string content, byte[]? file = null, string fileName = "image.png") {
             try {
                 var url = Environment.GetEnvironmentVariable("SKYSHARE_DISCORD_WEBHOOK");
                 if (string.IsNullOrWhiteSpace(url)) return;
                 var body = JsonSerializer.Serialize(new { content });
-                using var resp = await Http.PostAsync(url, new StringContent(body, Encoding.UTF8, "application/json"));
+                HttpContent request;
+                if (file is null) {
+                    request = new StringContent(body, Encoding.UTF8, "application/json");
+                } else {
+                    // Discord: JSON in "payload_json", attachments as files[n]
+                    var form = new MultipartFormDataContent {
+                        { new StringContent(body, Encoding.UTF8, "application/json"), "payload_json" },
+                    };
+                    var image = new ByteArrayContent(file);
+                    image.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
+                    form.Add(image, "files[0]", fileName);
+                    request = form;
+                }
+                using (request)
+                using (var resp = await Http.PostAsync(url, request))
+                    if (!resp.IsSuccessStatusCode)
+                        Logger.Warning($"[SkyShare] webhook returned {(int)resp.StatusCode}: {await resp.Content.ReadAsStringAsync()}");
             } catch (Exception e) {
                 Logger.Warning($"[SkyShare] webhook failed: {e.Message}");
             }

@@ -237,6 +237,15 @@ Settings on **SkyShare: Load Plan** (saved in the template):
 
 Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the saved template never accumulates old targets.
 
+### Night preview
+
+When *Load Plan* succeeds it also simulates the night on a clear sky and posts the result: when imaging starts, when each target runs, how many frames and how much exposure time it gets, and why it stops. It's posted with an altitude chart showing every target on one plot: **solid** while the target is being imaged, **dotted** when it isn't, vertical lines where the sequence changes target, twilight shading, and the *stop below* altitude.
+
+* **Same rules as the sequence.** Targets run in plan order from astronomical dusk (or from now, if the plan is loaded later). The simulation uses each target's `start`/`end`, *stop below* altitude, `max_frames`, `max_hours`, `next_target_altitude`, cycle mode and dawn, all checked between frames. A target that is already below the altitude limit when its turn comes is **skipped**, just as the real altitude condition skips it, and the preview warns about it (`target_not_reached`), so a missing `start` time shows up before the night begins.
+* **Overheads** come from the *Night preview* row on *Load Plan*: slew/center/rotate per target (3 min), autofocus (4 min, at target start if enabled and then every 60 min), dither + settle (30 s), per-frame download (5 s) and meridian flip (5 min). They only affect the estimate. Set them to match your template's triggers.
+* **Where it goes:** a `night_estimate` status event (with the per-target times as data), `<plan>.night.png` next to the plan in Dropbox, and the Discord webhook (`SKYSHARE_DISCORD_WEBHOOK`) with the chart attached. The bot can post the same thing with `StatusTailer.image_for(ev)` (see `bot_integration.py`). Use one of the two, or the chart is posted twice.
+* Precision: J2000 coordinates and a low-precision sun, good to a few minutes. Code: `SkyShare.Planner.Core/NightEstimator.cs` (simulation, unit-tested), `NightSummary.cs` (text), `Runtime/NightChart.cs` (PNG).
+
 ### Darks
 
 A plan can carry a `darks` section. **SkyShare Darks** builds it at Load Plan, like the targets:
@@ -531,7 +540,7 @@ except PlanError as e:
 
 Your existing wizard dict (`name, ra, dec, rot, exposures, date, user`) works unchanged. `plan_from_wizard` converts `DD-MM-YYYY` dates and applies your narrowband-gain rule. For multi-target nights, pass `{"date", "user", "targets": [ {...}, {...} ]}`, where each entry has the same keys plus optional `start`/`end`.
 
-To post the night's progress, run `StatusTailer(PLANS_DIR).poll()` every 30 s from a `tasks.loop`. There's an example in the `bot_integration.py` docstring.
+To post the night's progress, run `StatusTailer(PLANS_DIR).poll()` every 30 s from a `tasks.loop`. There's an example in the `bot_integration.py` docstring. For `night_estimate` events, `tailer.image_for(ev)` returns the altitude chart once Dropbox has synced it, and `night_estimate_text(ev)` returns the ready-made message.
 
 Optional instant alerts: set the environment variable `SKYSHARE_DISCORD_WEBHOOK` on the acquisition PC. It's kept out of the template and out of Dropbox deliberately.
 
