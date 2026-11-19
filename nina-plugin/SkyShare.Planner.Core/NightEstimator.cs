@@ -59,6 +59,9 @@ namespace SkyShare.Planner.Core {
         DateTime? Finish,
         IReadOnlyList<string> Notes);
 
+    /// <summary>Sun times of one night (local clock). DarknessLabel says which twilight Dusk/Dawn are.</summary>
+    public sealed record NightWindow(DateOnly Night, DateTime Sunset, DateTime Dusk, DateTime Dawn, DateTime Sunrise, string DarknessLabel);
+
     /// <summary>
     /// Clear-sky simulation of the generated sequence, used for the night-plan preview.
     ///
@@ -82,17 +85,10 @@ namespace SkyShare.Planner.Core {
             var night = DateOnly.ParseExact(plan.Night, "yyyy-MM-dd", CultureInfo.InvariantCulture);
             var notes = new List<string>();
 
-            var noon = night.ToDateTime(new TimeOnly(12, 0));
-            var (sunset, sunrise) = Crossing(site, zone, noon, -0.833) ?? (noon.AddHours(6), noon.AddHours(18));
-            (DateTime, DateTime)? dark = null;
-            string label = AstronomicalLabel;
-            foreach (var (alt, name) in new[] { (-18.0, AstronomicalLabel), (-12.0, "nautical"), (-6.0, "civil") }) {
-                dark = Crossing(site, zone, noon, alt);
-                if (dark != null) { label = name; break; }
-            }
+            var w = Twilight(night, site, zone);
+            var (sunset, dusk, dawn, sunrise, label) = (w.Sunset, w.Dusk, w.Dawn, w.Sunrise, w.DarknessLabel);
             if (label != AstronomicalLabel)
                 notes.Add($"the sun never reaches -18° tonight; using {label} twilight as the dark window");
-            var (dusk, dawn) = dark ?? (sunset, sunrise);
 
             var start = dusk;
             if (notBefore is { } nb && nb > start && nb < dawn) start = nb;
@@ -209,17 +205,42 @@ namespace SkyShare.Planner.Core {
             return day.ToDateTime(time);
         }
 
+        /// <summary>
+        /// Sunset, dark window and sunrise of the night starting on this date. The dark
+        /// window is astronomical twilight, falling back to nautical then civil when the
+        /// sun never gets that low.
+        /// </summary>
+        public static NightWindow Twilight(DateOnly night, Site site, TimeZoneInfo? zone = null) {
+            zone ??= TimeZoneInfo.Local;
+            var noon = night.ToDateTime(new TimeOnly(12, 0));
+            var (sunset, sunrise) = Crossing(site, zone, noon, -0.833) ?? (noon.AddHours(6), noon.AddHours(18));
+            foreach (var (alt, name) in new[] { (-18.0, AstronomicalLabel), (-12.0, "nautical"), (-6.0, "civil") })
+                if (Crossing(site, zone, noon, alt) is { } dark)
+                    return new NightWindow(night, sunset, dark.Down, dark.Up, sunrise, name);
+            return new NightWindow(night, sunset, sunset, sunrise, sunrise, "none");
+        }
+
+        /// <summary>The night a local time belongs to: before noon counts as the previous evening's night.</summary>
+        public static DateOnly NightOf(DateTime local) =>
+            DateOnly.FromDateTime(local.Hour < 12 ? local.Date.AddDays(-1) : local.Date);
+
+        /// <summary>Altitude of RA/Dec at local times from..to every stepMinutes.</summary>
+        public static IReadOnlyList<(DateTime Time, double Altitude)> AltitudeCurve(
+            double raHours, double decDeg, Site site, DateTime from, DateTime to, double stepMinutes = 5, TimeZoneInfo? zone = null) {
+            zone ??= TimeZoneInfo.Local;
+            var pts = new List<(DateTime, double)>();
+            for (var x = from; x <= to; x = x.AddMinutes(stepMinutes)) pts.Add((x, Altitude(raHours, decDeg, site, zone, x)));
+            return pts;
+        }
+
         // ---- altitude curves for the chart -----------------------------------
 
         /// <summary>Altitude of a plan target at local times from..to every stepMinutes.</summary>
         public static IReadOnlyList<(DateTime Time, double Altitude)> AltitudeCurve(
             PlanTarget tg, Site site, DateTime from, DateTime to, double stepMinutes = 5, TimeZoneInfo? zone = null) {
-            zone ??= TimeZoneInfo.Local;
             Sexagesimal.TryParseRaHours(tg.Ra, out var raH);
             Sexagesimal.TryParseDecDegrees(tg.Dec, out var decD);
-            var pts = new List<(DateTime, double)>();
-            for (var x = from; x <= to; x = x.AddMinutes(stepMinutes)) pts.Add((x, Altitude(raH, decD, site, zone, x)));
-            return pts;
+            return AltitudeCurve(raH, decD, site, from, to, stepMinutes, zone);
         }
 
         // ---- astronomy --------------------------------------------------------

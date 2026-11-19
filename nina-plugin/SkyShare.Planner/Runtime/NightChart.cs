@@ -25,11 +25,15 @@ namespace SkyShare.Planner.Runtime {
         private static readonly string[] Palette =
             { "#4FC3F7", "#FFB74D", "#81C784", "#E57373", "#BA68C8", "#FFF176", "#4DB6AC", "#F06292" };
 
+        /// <summary>The SkyShare plan preview chart.</summary>
+        public static byte[] RenderPng(NightPlan plan, NightEstimate est, Site site, double minAltitude, TimeZoneInfo? zone = null) =>
+            RenderPng(ChartModels.FromEstimate(plan, est, minAltitude), site, zone);
+
         /// <summary>Renders on a private STA thread (WPF drawing needs one); safe to call from anywhere.</summary>
-        public static byte[] RenderPng(NightPlan plan, NightEstimate est, Site site, double minAltitude, TimeZoneInfo? zone = null) {
+        public static byte[] RenderPng(ChartModel model, Site site, TimeZoneInfo? zone = null) {
             byte[]? png = null; Exception? error = null;
             var thread = new Thread(() => {
-                try { png = Render(plan, est, site, minAltitude, zone ?? TimeZoneInfo.Local); } catch (Exception e) { error = e; }
+                try { png = Render(model, site, zone ?? TimeZoneInfo.Local); } catch (Exception e) { error = e; }
             });
             thread.SetApartmentState(ApartmentState.STA);
             thread.IsBackground = true;
@@ -39,10 +43,12 @@ namespace SkyShare.Planner.Runtime {
             return png!;
         }
 
-        private static byte[] Render(NightPlan plan, NightEstimate est, Site site, double minAlt, TimeZoneInfo zone) {
+        private static byte[] Render(ChartModel m, Site site, TimeZoneInfo zone) {
+            var est = m.Window;
+            var series = m.Series;
             var from = est.Sunset.AddMinutes(-30);
             var to = est.Sunrise.AddMinutes(30);
-            var rows = Math.Min(est.Targets.Count, MaxLegendRows + 1);
+            var rows = Math.Min(series.Count, MaxLegendRows + 1);
             var H = (int)(T + PlotH + 34 + rows * 18 + 12);
             double plotW = W - L - R, plotH = PlotH;
             double X(DateTime t) => L + (t - from).TotalMinutes / (to - from).TotalMinutes * plotW;
@@ -75,53 +81,78 @@ namespace SkyShare.Planner.Runtime {
                 Text(dc, $"dawn {est.Dawn:HH:mm}", X(est.Dawn) + 4, T + plotH - 18, 11, "#7d8398");
 
                 // Minimum altitude.
-                var limit = new Pen(Brush("#E57373"), 1.2) { DashStyle = new DashStyle(new double[] { 6, 4 }, 0) };
-                dc.DrawLine(limit, new Point(L, Y(minAlt)), new Point(L + plotW, Y(minAlt)));
-                Text(dc, $"stop below {minAlt:0}°", L + plotW - 4, Y(minAlt) - 16, 11, "#E57373", align: 1);
+                if (m.MinAltitude is { } minAlt) {
+                    var limit = new Pen(Brush("#E57373"), 1.2) { DashStyle = new DashStyle(new double[] { 6, 4 }, 0) };
+                    dc.DrawLine(limit, new Point(L, Y(minAlt)), new Point(L + plotW, Y(minAlt)));
+                    Text(dc, $"stop below {minAlt:0}°", L + plotW - 4, Y(minAlt) - 16, 11, "#E57373", align: 1);
+                }
 
                 // Altitude curves: dotted everywhere, solid while imaged.
-                for (int i = 0; i < plan.Targets.Count; i++) {
+                for (int i = 0; i < series.Count; i++) {
+                    var sr = series[i];
                     var color = Brush(Palette[i % Palette.Length]);
-                    var pts = NightEstimator.AltitudeCurve(plan.Targets[i], site, from, to, 4, zone);
+                    var pts = NightEstimator.AltitudeCurve(sr.RaHours, sr.DecDeg, site, from, to, 4, zone);
                     var dotted = new Pen(color, 1.6) { DashStyle = new DashStyle(new double[] { 1, 2.5 }, 0), DashCap = PenLineCap.Round };
                     Polyline(dc, dotted, pts, X, Y);
 
-                    var e = est.Targets[i];
-                    if (!e.Skipped && e.ImagingStart is { } s0 && e.End is { } s1) {
-                        var seg = NightEstimator.AltitudeCurve(plan.Targets[i], site, s0, s1, 1, zone).ToList();
-                        seg.Add((s1, NightEstimator.AltitudeCurve(plan.Targets[i], site, s1, s1, 1, zone)[0].Altitude));
-                        Polyline(dc, new Pen(color, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round }, seg, X, Y);
+                    var solid = new Pen(color, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+                    foreach (var g in sr.Imaging) {
+                        var seg = NightEstimator.AltitudeCurve(sr.RaHours, sr.DecDeg, site, g.Start, g.End, 1, zone).ToList();
+                        seg.Add((g.End, NightEstimator.Altitude(sr.RaHours, sr.DecDeg, site, zone, g.End)));
+                        Polyline(dc, solid, seg, X, Y);
                     }
                 }
 
                 // Vertical lines where the sequence switches target.
                 var change = new Pen(Brush("#c8ccd8"), 1) { DashStyle = new DashStyle(new double[] { 4, 3 }, 0) };
-                var row = 0;
-                for (int i = 0; i < est.Targets.Count; i++) {
-                    var e = est.Targets[i];
-                    if (e.Skipped || e.ImagingStart is not { } s0) continue;
+                var starts = series.SelectMany((sr, i) => sr.Imaging.Select(g => (g.Start, i))).OrderBy(x => x.Start).ToList();
+                var rowEnds = new double[4];   // labels go in the first row they don't overlap
+                var seen = new HashSet<int>();
+                foreach (var (s0, i) in starts) {
                     dc.DrawLine(change, new Point(X(s0), T - 4), new Point(X(s0), T + plotH));
-                    Text(dc, $"{i + 1}. {e.Name}  {s0:HH:mm}", X(s0) + 4, T + 4 + (row++ % 3) * 16, 12, Palette[i % Palette.Length]);
+                    var label = seen.Add(i) ? $"{i + 1}. {series[i].Name}  {s0:HH:mm}" : $"{i + 1}  {s0:HH:mm}"; // name on first visit only
+                    var x0 = X(s0) + 4;
+                    var w = Measure(label, 12, false);
+                    if (x0 + w > W - R) x0 = W - R - w;
+                    var r = Array.FindIndex(rowEnds, e => e < x0);
+                    if (r < 0) r = Array.IndexOf(rowEnds, rowEnds.Min());
+                    rowEnds[r] = x0 + w + 6;
+                    Text(dc, label, x0, T + 4 + r * 16, 12, Palette[i % Palette.Length]);
                 }
-                if (est.Finish is { } fin) {
+                if (m.Finish is { } fin) {
                     dc.DrawLine(change, new Point(X(fin), T - 4), new Point(X(fin), T + plotH));
                     Text(dc, $"done {fin:HH:mm}", X(fin) + 4, T + plotH - 36, 11, "#c8ccd8");
                 }
 
                 // Title.
-                var title = $"Night plan {est.Night:yyyy-MM-dd}" + (string.IsNullOrWhiteSpace(plan.Client) ? "" : $" — {plan.Client}");
-                Text(dc, title, L, 14, 20, "#e8eaf0", bold: true);
-                Text(dc, "clear-sky estimate · solid = imaging · dotted = not scheduled", L, 40, 12, "#9aa0b4");
+                Text(dc, m.Title, L, 14, 20, "#e8eaf0", bold: true);
+                Text(dc, m.Subtitle, L, 40, 12, "#9aa0b4");
 
-                // Legend.
+                // Legend: swatch, name, [completion bar], description.
                 double ly = T + plotH + 30;
-                for (int i = 0; i < est.Targets.Count; i++) {
-                    var e = est.Targets[i];
+                var names = series.Take(MaxLegendRows + 1).Select((sr, i) => $"{i + 1}. {sr.Name}").ToList();
+                var nameW = Math.Min(380, names.Select(n => Measure(n, 13, true)).DefaultIfEmpty(0).Max());
+                var hasBars = series.Any(sr => sr.ProgressBefore != null);
+                double barX = L + 26 + nameW + 14, barW = 100;
+                double descX = hasBars ? barX + barW + 12 : Math.Max(L + 280, barX);
+                for (int i = 0; i < series.Count; i++) {
+                    var sr = series[i];
                     var y = ly + i * 18;
-                    if (i == MaxLegendRows && est.Targets.Count > MaxLegendRows + 1) { Text(dc, $"… {est.Targets.Count - i} more", L, y, 12, "#9aa0b4"); break; }
-                    dc.DrawRectangle(Brush(Palette[i % Palette.Length]), null, new Rect(L, y + 4, 18, 8));
-                    Text(dc, $"{i + 1}. {e.Name}", L + 26, y, 13, "#e8eaf0", bold: true);
-                    Text(dc, NightSummary.Describe(e), L + 280, y, 13, e.Skipped ? "#E57373" : "#c8ccd8");
+                    if (i == MaxLegendRows && series.Count > MaxLegendRows + 1) { Text(dc, $"… {series.Count - i} more", L, y, 12, "#9aa0b4"); break; }
+                    var color = Palette[i % Palette.Length];
+                    dc.DrawRectangle(Brush(color), null, new Rect(L, y + 4, 18, 8));
+                    Text(dc, names[i], L + 26, y, 13, "#e8eaf0", bold: true);
+                    if (sr.ProgressBefore is { } before) {
+                        var after = Math.Max(before, sr.ProgressAfter ?? before);
+                        var bar = new Rect(barX, y + 3, barW, 10);
+                        dc.DrawRectangle(Brush("#2a2e3d"), new Pen(Brush("#4a4f63"), 1), bar);
+                        dc.DrawRectangle(Brush(color), null, new Rect(barX, y + 3, barW * Math.Clamp(before, 0, 100) / 100, 10));
+                        var gain = Brush(color).Clone(); gain.Opacity = 0.45; gain.Freeze();
+                        dc.DrawRectangle(gain, null, new Rect(barX + barW * Math.Clamp(before, 0, 100) / 100, y + 3,
+                                                              barW * (Math.Clamp(after, 0, 100) - Math.Clamp(before, 0, 100)) / 100, 10));
+                    }
+                    var maxW = W - R - descX;
+                    Text(dc, Fit(sr.Legend, 13, maxW), descX, y, 13, sr.Warn ? "#E57373" : "#c8ccd8");
                 }
             }
 
@@ -146,11 +177,24 @@ namespace SkyShare.Planner.Runtime {
             }
         }
 
-        private static void Text(DrawingContext dc, string s, double x, double y, double size, string color,
-                                 int align = -1, bool bold = false, bool vcenter = false) {
-            var ft = new FormattedText(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+        private static FormattedText Format(string s, double size, bool bold, string color = "#ffffff") =>
+            new(s, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
                 new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, bold ? FontWeights.SemiBold : FontWeights.Normal, FontStretches.Normal),
                 size, Brush(color), 1.0);
+
+        private static double Measure(string s, double size, bool bold) => Format(s, size, bold).Width;
+
+        /// <summary>Shortens text with "…" so it fits in maxWidth.</summary>
+        private static string Fit(string s, double size, double maxWidth) {
+            if (Measure(s, size, false) <= maxWidth) return s;
+            var n = s.Length;
+            while (n > 1 && Measure(s[..n] + "…", size, false) > maxWidth) n--;
+            return s[..n] + "…";
+        }
+
+        private static void Text(DrawingContext dc, string s, double x, double y, double size, string color,
+                                 int align = -1, bool bold = false, bool vcenter = false) {
+            var ft = Format(s, size, bold, color);
             if (align == 0) x -= ft.Width / 2; else if (align == 1) x -= ft.Width;
             if (vcenter) y -= ft.Height / 2;
             dc.DrawText(ft, new Point(x, y));

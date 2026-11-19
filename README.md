@@ -246,6 +246,16 @@ When *Load Plan* succeeds it also simulates the night on a clear sky and posts t
 * **Where it goes:** a `night_estimate` status event (with the per-target times as data), `<plan>.night.png` next to the plan in Dropbox, and Discord with the chart attached (Discord Alert's webhook, or `SKYSHARE_DISCORD_WEBHOOK`). The bot can post the same thing with `StatusTailer.image_for(ev)` (see `bot_integration.py`). Use one of the two, or the chart is posted twice.
 * Precision: J2000 coordinates and a low-precision sun, good to a few minutes. Code: `SkyShare.Planner.Core/NightEstimator.cs` (simulation, unit-tested), `NightSummary.cs` (text), `Runtime/NightChart.cs` (PNG).
 
+### Scheduler Preview (Target Scheduler nights)
+
+*SkyShare: Scheduler Preview* is a separate instruction for sequences run by the Target Scheduler plugin. Put it **before** the Target Scheduler container, not inside it. It runs TS's own plan preview (the same as TS's *Plan Preview* panel) for tonight from the current time, and posts the result to Discord with the same style of altitude chart:
+
+* **Chart:** every target TS would image tonight, solid while imaged and dotted otherwise. A target TS comes back to gets one solid stretch per visit. Vertical lines mark each target change, and the *stop below* line is drawn when all projects share the same minimum altitude. Each legend row has a completion bar: how much of the target was done before tonight (solid), plus what tonight adds (faded).
+* **Message:** each target's time windows, frames per filter, exposure time and *done% → after tonight%*. Then the order of visits when TS returns to a target, and each project's completion with a text bar, including its targets that aren't scheduled tonight.
+* **Caveat:** TS's preview is a "perfect" plan. Slews, autofocus, dithers and flips take no time, and every frame counts as accepted. A real clear night gets somewhat less done, and the message says so.
+* **Where it goes:** Discord (same webhook as above) and a `ts_preview` entry in the NINA log. If you set a folder on the instruction, the chart is also saved there as `<night>_target-scheduler.night.png`.
+* It reads the TS database but never writes to it: the preview works on in-memory copies. TS is found at run time, so SkyShare still works without it; the instruction then just warns. Code: `Runtime/TargetSchedulerBridge.cs` (TS calls), `Core/SchedulerSummary.cs` (blocks, text, chart model; unit-tested).
+
 ### Darks
 
 A plan can carry a `darks` section. **SkyShare Darks** builds it at Load Plan, like the targets:

@@ -572,4 +572,100 @@ namespace SkyShare.Planner.Tests {
             Assert.That((with.End!.Value - without.End!.Value).TotalSeconds, Is.EqualTo(2 * 240).Within(240));
         }
     }
+
+    public class SchedulerSummaryTests {
+        private static readonly Site Site = new(45.5, -73.6);
+        private static readonly TimeZoneInfo Zone = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
+        private static readonly DateTime T0 = new(2026, 11, 19, 19, 0, 0);
+
+        private static IEnumerable<TsFrame> Run(string key, string filter, double exp, DateTime start, int n) =>
+            Enumerable.Range(0, n).Select(i => new TsFrame(key, filter, exp, start.AddSeconds(i * exp), start.AddSeconds((i + 1) * exp)));
+
+        private static TsPreview Preview() {
+            var frames = Run("1/1", "L", 120, T0, 30)                       // 19:00-20:00 M 31
+                .Concat(Run("1/1", "R", 120, T0.AddHours(1), 15))           // 20:00-20:30 still M 31
+                .Concat(Run("2/5", "Ha", 300, T0.AddHours(1.5), 12))        // 20:30-21:30 NGC 7000
+                .Concat(Run("1/1", "G", 120, T0.AddHours(2.5), 15))         // 21:30-22:00 back to M 31
+                .ToList();
+            var targets = new[] {
+                new TsTarget("1/1", "M 31", "Andromeda", 0.712, 41.27, 25, 40, 70),
+                new TsTarget("1/2", "M 110", "Andromeda", 0.673, 41.69, 25, 20, 20),
+                new TsTarget("2/5", "NGC 7000", "Cygnus", 20.98, 44.33, 25, 0, 35),
+                new TsTarget("3/9", "M 42", "Orion", 5.59, -5.39, 25, 10, 10),
+            };
+            return new TsPreview(T0, "Main", frames, targets);
+        }
+
+        [Test]
+        public void Blocks_split_on_target_change_and_merge_filters() {
+            var blocks = SchedulerSummary.Blocks(Preview().Frames);
+            Assert.That(blocks.Select(b => b.TargetKey), Is.EqualTo(new[] { "1/1", "2/5", "1/1" }));
+            Assert.That(blocks[0].Start, Is.EqualTo(T0));
+            Assert.That(blocks[0].End, Is.EqualTo(T0.AddHours(1.5)));
+            Assert.That(blocks[0].Frames.Select(f => (f.Filter, f.Frames)), Is.EqualTo(new[] { ("L", 30), ("R", 15) }));
+            Assert.That(blocks[1].IntegrationSeconds, Is.EqualTo(3600));
+        }
+
+        [Test]
+        public void Blocks_split_on_a_wait() {
+            var frames = Run("1/1", "L", 60, T0, 5).Concat(Run("1/1", "L", 60, T0.AddHours(2), 5));
+            Assert.That(SchedulerSummary.Blocks(frames), Has.Count.EqualTo(2));
+        }
+
+        [Test]
+        public void Scheduled_targets_in_first_visit_order_only() {
+            var p = Preview();
+            var s = SchedulerSummary.Scheduled(p, SchedulerSummary.Blocks(p.Frames));
+            Assert.That(s.Select(t => t.Name), Is.EqualTo(new[] { "M 31", "NGC 7000" }));
+        }
+
+        [Test]
+        public void Chart_has_one_series_per_scheduled_target_with_all_its_stretches_and_progress() {
+            var p = Preview();
+            var chart = SchedulerSummary.Chart(p, NightEstimator.Twilight(new DateOnly(2026, 11, 19), Site, Zone));
+            Assert.That(chart.Series, Has.Count.EqualTo(2));
+            Assert.That(chart.Series[0].Imaging, Has.Count.EqualTo(2));
+            Assert.That(chart.Series[0].ProgressBefore, Is.EqualTo(40));
+            Assert.That(chart.Series[0].ProgressAfter, Is.EqualTo(70));
+            Assert.That(chart.MinAltitude, Is.EqualTo(25));
+            Assert.That(chart.Finish, Is.EqualTo(T0.AddHours(3)));
+        }
+
+        [Test]
+        public void Markdown_lists_targets_projects_and_the_perfect_plan_caveat() {
+            var p = Preview();
+            var md = SchedulerSummary.Markdown(p, NightEstimator.Twilight(new DateOnly(2026, 11, 19), Site, Zone));
+            Assert.That(md, Does.Contain("**M 31** (Andromeda)"));
+            Assert.That(md, Does.Contain("19:00–20:30, 21:30–22:00"));
+            Assert.That(md, Does.Contain("L 120s×30, R 120s×15, G 120s×15"));
+            Assert.That(md, Does.Contain("40% → 70%"));
+            Assert.That(md, Does.Contain("**Andromeda**"));
+            Assert.That(md, Does.Contain("M 110 20% (not tonight)"));
+            Assert.That(md, Does.Contain("Order: M 31 19:00 → NGC 7000 20:30 → M 31 21:30"));
+            Assert.That(md, Does.Contain("2 other active target(s)"));   // M 110, M 42
+            Assert.That(md, Does.Contain("no time for slews"));
+            Assert.That(md.Length, Is.LessThan(1900));
+        }
+
+        [Test]
+        public void Markdown_when_nothing_is_scheduled() {
+            var p = Preview() with { Frames = Array.Empty<TsFrame>() };
+            var md = SchedulerSummary.Markdown(p, NightEstimator.Twilight(new DateOnly(2026, 11, 19), Site, Zone));
+            Assert.That(md, Does.Contain("would not image anything"));
+        }
+
+        [TestCase(40, 70, "`████▓▓▓░░░`")]
+        [TestCase(0, 0, "`░░░░░░░░░░`")]
+        [TestCase(100, 100, "`██████████`")]
+        public void Bar(double before, double after, string expected) =>
+            Assert.That(SchedulerSummary.Bar(before, after), Is.EqualTo(expected));
+
+        [Test]
+        public void Twilight_matches_the_estimator() {
+            var w = NightEstimator.Twilight(new DateOnly(2026, 11, 19), Site, Zone);
+            Assert.That(w.Dusk.Hour, Is.InRange(17, 18));
+            Assert.That(w.Dawn.Hour, Is.InRange(5, 6));
+            Assert.That(NightEstimator.NightOf(new DateTime(2026, 11, 20, 3, 0, 0)), Is.EqualTo(new DateOnly(2026, 11, 19)));
+        }
+    }
 }

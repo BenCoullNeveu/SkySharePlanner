@@ -105,6 +105,22 @@
         </nina:SequenceBlockView>
     </DataTemplate>
 
+    <DataTemplate DataType="{x:Type local:SchedulerPreview}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Opacity="0.7"
+                                   Text="Posts Target Scheduler's plan preview to Discord. Also save chart to" />
+                        <TextBox MinWidth="260" Margin="6,0,0,0" VerticalAlignment="Center"
+                                 Text="{Binding SaveFolder}" ToolTip="Optional folder for the chart PNG. Empty = Discord only." />
+                    </StackPanel>
+                    <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap" Text="{Binding LastSummary}" />
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
     <!-- SkyShare logo as a sequencer icon (key used in ExportMetadata "Icon").
          Traced from installer/SkyShareLogo.png; NINA icons are vector shapes tinted by the theme. -->
     <GeometryGroup x:Key="SkyShareLogoSVG" FillRule="EvenOdd">
