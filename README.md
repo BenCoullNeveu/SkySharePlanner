@@ -243,7 +243,7 @@ When *Load Plan* succeeds it also simulates the night on a clear sky and posts t
 
 * **Same rules as the sequence.** Targets run in plan order from astronomical dusk (or from now, if the plan is loaded later). The simulation uses each target's `start`/`end`, *stop below* altitude, `max_frames`, `max_hours`, `next_target_altitude`, cycle mode and dawn, all checked between frames. A target that is already below the altitude limit when its turn comes is **skipped**, just as the real altitude condition skips it, and the preview warns about it (`target_not_reached`), so a missing `start` time shows up before the night begins.
 * **Overheads** come from the *Night preview* row on *Load Plan*: slew/center/rotate per target (3 min), autofocus (4 min, at target start if enabled and then every 60 min), dither + settle (30 s), per-frame download (5 s) and meridian flip (5 min). They only affect the estimate. Set them to match your template's triggers.
-* **Where it goes:** a `night_estimate` status event (with the per-target times as data), `<plan>.night.png` next to the plan in Dropbox, and the Discord webhook (`SKYSHARE_DISCORD_WEBHOOK`) with the chart attached. The bot can post the same thing with `StatusTailer.image_for(ev)` (see `bot_integration.py`). Use one of the two, or the chart is posted twice.
+* **Where it goes:** a `night_estimate` status event (with the per-target times as data), `<plan>.night.png` next to the plan in Dropbox, and Discord with the chart attached (Discord Alert's webhook, or `SKYSHARE_DISCORD_WEBHOOK`). The bot can post the same thing with `StatusTailer.image_for(ev)` (see `bot_integration.py`). Use one of the two, or the chart is posted twice.
 * Precision: J2000 coordinates and a low-precision sun, good to a few minutes. Code: `SkyShare.Planner.Core/NightEstimator.cs` (simulation, unit-tested), `NightSummary.cs` (text), `Runtime/NightChart.cs` (PNG).
 
 ### Darks
@@ -542,7 +542,7 @@ Your existing wizard dict (`name, ra, dec, rot, exposures, date, user`) works un
 
 To post the night's progress, run `StatusTailer(PLANS_DIR).poll()` every 30 s from a `tasks.loop`. There's an example in the `bot_integration.py` docstring. For `night_estimate` events, `tailer.image_for(ev)` returns the altitude chart once Dropbox has synced it, and `night_estimate_text(ev)` returns the ready-made message.
 
-Optional instant alerts: set the environment variable `SKYSHARE_DISCORD_WEBHOOK` on the acquisition PC. It's kept out of the template and out of Dropbox deliberately.
+Instant alerts and the night preview go to Discord through the webhook set in the **Discord Alert** plugin (NINA *Options → Plugins → Discord Alert*), so there's one place to change it. It's read on every post, so a change applies without restarting NINA. To send SkyShare's posts somewhere else, set the environment variable `SKYSHARE_DISCORD_WEBHOOK` on the acquisition PC; it overrides Discord Alert's (restart NINA after setting it). Neither is in the template or in Dropbox. Without either, nothing is posted from NINA.
 
 > ⚠️ `config.yaml` currently contains the bot token in plain text. Reset it in the Discord Developer Portal, then load it from an environment variable or an untracked file before this goes anywhere near the SkyStack repo.
 

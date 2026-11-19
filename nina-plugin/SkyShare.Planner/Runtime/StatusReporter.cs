@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -16,9 +17,10 @@ namespace SkyShare.Planner.Runtime {
     /// 1. Appends JSON lines to "&lt;plan&gt;.status.jsonl" next to the plan file.
     ///    Dropbox syncs it to the compute server, where the Discord bot / SkyStack
     ///    can tail it. No network setup needed.
-    /// 2. Optionally posts to a Discord webhook if the environment variable
-    ///    SKYSHARE_DISCORD_WEBHOOK is set on the acquisition PC (kept out of the
-    ///    sequence file and out of Dropbox on purpose).
+    /// 2. Posts to Discord through the webhook set in the Discord Alert plugin
+    ///    (NINA Options → Plugins → Discord Alert). The environment variable
+    ///    SKYSHARE_DISCORD_WEBHOOK on the acquisition PC overrides it. Neither is
+    ///    in the sequence file or in Dropbox, on purpose.
     ///
     /// Warnings and errors also go to NINA itself: its log at the matching level
     /// and a notification in the NINA window, so you can see what happened without
@@ -88,9 +90,48 @@ namespace SkyShare.Planner.Runtime {
             _ = PostWebhookAsync(markdown, png, fileName);
         }
 
+        /// <summary>
+        /// Where Discord posts go: SKYSHARE_DISCORD_WEBHOOK if set (an override), otherwise
+        /// the webhook configured in the Discord Alert plugin (NINA Options → Plugins →
+        /// Discord Alert). Read on every post, so a change in NINA applies straight away.
+        /// </summary>
+        public static string? WebhookUrl() {
+            var url = Environment.GetEnvironmentVariable("SKYSHARE_DISCORD_WEBHOOK");
+            return string.IsNullOrWhiteSpace(url) ? DiscordAlertWebhook() : url;
+        }
+
+        private static System.Reflection.PropertyInfo? discordAlertDefault;
+        private static bool discordAlertSearched;
+
+        // Discord Alert keeps its URL in an internal settings class; we look it up by name so
+        // SkyShare has no hard dependency on that plugin (absent = no Discord posts, as before).
+        private static string? DiscordAlertWebhook() {
+            try {
+                if (!discordAlertSearched) {
+                    discordAlertSearched = true;
+                    var type = AppDomain.CurrentDomain.GetAssemblies()
+                        .Select(a => a.GetType("NINA.DiscordAlert.Properties.Settings", throwOnError: false))
+                        .FirstOrDefault(t => t != null);
+                    discordAlertDefault = type?.GetProperty("Default",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                    if (discordAlertDefault is null) {
+                        discordAlertSearched = false; // plugin may load after us; try again next time
+                        return null;
+                    }
+                    Logger.Info("[SkyShare] using the Discord Alert plugin's webhook for Discord posts");
+                }
+                var settings = discordAlertDefault?.GetValue(null);
+                var url = settings?.GetType().GetProperty("DiscordWebhookURL")?.GetValue(settings) as string;
+                return string.IsNullOrWhiteSpace(url) ? null : url;
+            } catch (Exception e) {
+                Logger.Warning($"[SkyShare] could not read the Discord Alert webhook: {e.Message}");
+                return null;
+            }
+        }
+
         private static async Task PostWebhookAsync(string content, byte[]? file = null, string fileName = "image.png") {
             try {
-                var url = Environment.GetEnvironmentVariable("SKYSHARE_DISCORD_WEBHOOK");
+                var url = WebhookUrl();
                 if (string.IsNullOrWhiteSpace(url)) return;
                 var body = JsonSerializer.Serialize(new { content });
                 HttpContent request;
