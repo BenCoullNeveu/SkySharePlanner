@@ -30,6 +30,10 @@ OutputBaseFilename=SkySharePlanner-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Logo: installer/SkyShareLogo.png; .ico and .bmp are generated from it
+SetupIconFile=SkyShareLogo.ico
+UninstallDisplayIcon={uninstallexe}
+WizardSmallImageFile=WizardSmall.bmp
 ArchitecturesAllowed=x64compatible
 ; NINA locks the DLL while running: offer to close it on upgrade
 CloseApplications=yes

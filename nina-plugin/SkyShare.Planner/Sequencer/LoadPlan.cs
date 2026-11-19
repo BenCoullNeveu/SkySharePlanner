@@ -29,7 +29,7 @@ namespace SkyShare.Planner.Sequencer {
     /// </summary>
     [ExportMetadata("Name", "SkyShare: Load Plan")]
     [ExportMetadata("Description", "Loads and validates tonight's SkyShare plan file from the plans folder.")]
-    [ExportMetadata("Icon", "FileSVG")]          // VERIFY: any icon key from NINA's resource dictionary
+    [ExportMetadata("Icon", "SkyShareLogoSVG")]  // Resources/DataTemplates.xaml
     [ExportMetadata("Category", "SkyShare")]
     [Export(typeof(ISequenceItem))]
     [JsonObject(MemberSerialization.OptIn)]

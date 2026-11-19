@@ -19,11 +19,11 @@ using System.Runtime.InteropServices;
 
 [assembly: AssemblyMetadata("License", "MPL-2.0")]
 [assembly: AssemblyMetadata("LicenseURL", "https://www.mozilla.org/en-US/MPL/2.0/")]
-[assembly: AssemblyMetadata("Repository", "https://github.com/BenCoullNeveu/SkyStack")]
-[assembly: AssemblyMetadata("Homepage", "https://github.com/BenCoullNeveu/SkyStack")]
+[assembly: AssemblyMetadata("Repository", "https://github.com/BenCoullNeveu/SkySharePlanner")]
+[assembly: AssemblyMetadata("Homepage", "https://github.com/BenCoullNeveu/SkySharePlanner")]
 [assembly: AssemblyMetadata("Tags", "Sequencer,Automation,Remote")]
 [assembly: AssemblyMetadata("ChangelogURL", "")]
-[assembly: AssemblyMetadata("FeaturedImageURL", "")]
+[assembly: AssemblyMetadata("FeaturedImageURL", "pack://application:,,,/SkyShare.Planner;component/Resources/SkyShareLogo.png")]
 [assembly: AssemblyMetadata("ScreenshotURL", "")]
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
 [assembly: AssemblyMetadata("LongDescription", @"Adds five sequencer items:

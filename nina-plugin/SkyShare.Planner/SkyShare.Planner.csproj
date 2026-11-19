@@ -33,6 +33,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Plugin logo, embedded so NINA shows it offline (FeaturedImageURL is a pack:// URI) -->
+    <Resource Include="..\..\installer\SkyShareLogo.png" Link="Resources\SkyShareLogo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Pure logic compiled straight in: one DLL to deploy, same code the tests cover -->
     <Compile Include="..\SkyShare.Planner.Core\*.cs" Link="Core\%(Filename)%(Extension)" />
   </ItemGroup>
