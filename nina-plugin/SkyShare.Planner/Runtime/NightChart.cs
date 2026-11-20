@@ -15,7 +15,8 @@ namespace SkyShare.Planner.Runtime {
     /// Draws the night-plan altitude chart as a PNG: every target's altitude curve on
     /// one plot, dotted where the target is not scheduled and solid while it is being
     /// imaged, vertical lines where the sequence changes target, twilight shading,
-    /// and the minimum-altitude line. Dark background to suit Discord.
+    /// the Moon's altitude and illumination, and the minimum-altitude line.
+    /// Dark background to suit Discord.
     /// </summary>
     public static class NightChart {
         private const int W = 1200;
@@ -85,6 +86,18 @@ namespace SkyShare.Planner.Runtime {
                     var limit = new Pen(Brush("#E57373"), 1.2) { DashStyle = new DashStyle(new double[] { 6, 4 }, 0) };
                     dc.DrawLine(limit, new Point(L, Y(minAlt)), new Point(L + plotW, Y(minAlt)));
                     Text(dc, $"stop below {minAlt:0}°", L + plotW - 4, Y(minAlt) - 16, 11, "#E57373", align: 1);
+                }
+
+                // Moon: pale dash-dot curve, labelled with its illumination at its highest point.
+                var moon = new List<(DateTime Time, double Altitude)>();
+                for (var t = from; t <= to; t = t.AddMinutes(4)) moon.Add((t, NightEstimator.MoonAltitude(site, zone, t)));
+                var moonPen = new Pen(Brush("#cfd3df"), 1.4) { DashStyle = new DashStyle(new double[] { 6, 3, 1, 3 }, 0), DashCap = PenLineCap.Round };
+                Polyline(dc, moonPen, moon, X, Y);
+                var top = moon.MaxBy(p => p.Altitude);
+                if (top.Altitude > 0) {
+                    var lit = NightEstimator.MoonIllumination(zone, top.Time);
+                    var lx = Math.Clamp(X(top.Time), L + 30, L + plotW - 30);
+                    Text(dc, $"Moon {lit * 100:0}%", lx, Y(top.Altitude) - 18, 11, "#cfd3df", align: 0);
                 }
 
                 // Altitude curves: dotted everywhere, solid while imaged.
@@ -168,13 +181,25 @@ namespace SkyShare.Planner.Runtime {
         /// <summary>Draws the curve, breaking it where the target is below the horizon.</summary>
         private static void Polyline(DrawingContext dc, Pen pen, IEnumerable<(DateTime Time, double Altitude)> pts,
                                      Func<DateTime, double> x, Func<double, double> y) {
-            Point? prev = null;
-            foreach (var (t, a) in pts) {
-                if (a < 0) { prev = null; continue; }
-                var p = new Point(x(t), y(a));
-                if (prev is { } q) dc.DrawLine(pen, q, p);
-                prev = p;
+            // One path per stretch above the horizon, so dash patterns run on instead of restarting every point.
+            var run = new List<Point>();
+            void Flush() {
+                if (run.Count >= 2) {
+                    var g = new StreamGeometry();
+                    using (var ctx = g.Open()) {
+                        ctx.BeginFigure(run[0], false, false);
+                        ctx.PolyLineTo(run.Skip(1).ToList(), true, true);
+                    }
+                    g.Freeze();
+                    dc.DrawGeometry(null, pen, g);
+                }
+                run.Clear();
             }
+            foreach (var (t, a) in pts) {
+                if (a < 0) { Flush(); continue; }
+                run.Add(new Point(x(t), y(a)));
+            }
+            Flush();
         }
 
         private static FormattedText Format(string s, double size, bool bold, string color = "#ffffff") =>

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using NINA.Core.Model;
+using NINA.Equipment.Interfaces.Mediator;
 using NINA.Profile.Interfaces;
 using NINA.Sequencer.SequenceItem;
 using SkyShare.Planner.Runtime;
@@ -25,16 +26,24 @@ namespace SkyShare.Planner.Sequencer {
     [JsonObject(MemberSerialization.OptIn)]
     public class SchedulerPreview : SequenceItem {
         private readonly IProfileService profileService;
+        private readonly ICameraMediator cameraMediator;
 
         [ImportingConstructor]
-        public SchedulerPreview(IProfileService profileService) {
+        public SchedulerPreview(IProfileService profileService, ICameraMediator cameraMediator) {
             this.profileService = profileService;
+            this.cameraMediator = cameraMediator;
         }
 
-        private SchedulerPreview(SchedulerPreview copyMe) : this(copyMe.profileService) {
+        private SchedulerPreview(SchedulerPreview copyMe) : this(copyMe.profileService, copyMe.cameraMediator) {
             CopyMetaData(copyMe);
             SaveFolder = copyMe.SaveFolder;
+            SendFramingPreview = copyMe.SendFramingPreview;
         }
+
+        private bool sendFramingPreview = true;
+        /// <summary>Attach a sky-survey cutout per scheduled target with the camera frame at its rotation.</summary>
+        [JsonProperty]
+        public bool SendFramingPreview { get => sendFramingPreview; set { sendFramingPreview = value; RaisePropertyChanged(); } }
 
         private string saveFolder = "";
         /// <summary>Where to also save the chart PNG; empty = Discord only.</summary>
@@ -46,7 +55,7 @@ namespace SkyShare.Planner.Sequencer {
 
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
             progress?.Report(new ApplicationStatus { Status = "Running Target Scheduler preview" });
-            LastSummary = await SchedulerNightPreview.Publish(profileService, SaveFolder);
+            LastSummary = await SchedulerNightPreview.Publish(profileService, SaveFolder, SendFramingPreview ? cameraMediator : null);
         }
 
         public override object Clone() => new SchedulerPreview(this);

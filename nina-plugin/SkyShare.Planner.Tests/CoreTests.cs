@@ -667,5 +667,126 @@ namespace SkyShare.Planner.Tests {
             Assert.That(w.Dawn.Hour, Is.InRange(5, 6));
             Assert.That(NightEstimator.NightOf(new DateTime(2026, 11, 20, 3, 0, 0)), Is.EqualTo(new DateOnly(2026, 11, 19)));
         }
+
+        // November 2026: new moon on the 9th, full moon on the 24th (~09:50 Toronto time).
+        [Test]
+        public void Moon_illumination_follows_the_phases() {
+            Assert.That(NightEstimator.MoonIllumination(Zone, new DateTime(2026, 11, 9, 3, 0, 0)), Is.LessThan(0.03));
+            Assert.That(NightEstimator.MoonIllumination(Zone, new DateTime(2026, 11, 24, 10, 0, 0)), Is.GreaterThan(0.98));
+            Assert.That(NightEstimator.MoonIllumination(Zone, new DateTime(2026, 11, 17, 0, 0, 0)), Is.InRange(0.3, 0.7)); // first quarter
+        }
+
+        [Test]
+        public void Separation_basics() {
+            Assert.That(NightEstimator.Separation(0, 0, 6, 0), Is.EqualTo(90).Within(1e-9));
+            Assert.That(NightEstimator.Separation(5, 89.9, 17, 89.9), Is.EqualTo(0.2).Within(1e-6));
+            Assert.That(NightEstimator.Separation(12, -30, 12, 30), Is.EqualTo(60).Within(1e-9));
+        }
+
+        [Test]
+        public void Moon_during_imaging_finds_the_closest_approach_or_null_when_down() {
+            var at = new DateTime(2026, 11, 24, 23, 0, 0);
+            var (ra, dec) = NightEstimator.MoonRaDec(Zone, at);
+            var near = NightEstimator.MoonDuring(ra, dec + 5, Site, at.AddHours(-1), at.AddHours(1), Zone)!;
+            Assert.That(near.SeparationDeg, Is.EqualTo(5).Within(1));
+            Assert.That(near.IsClose, Is.True);
+            Assert.That(near.ToString(), Does.StartWith("Moon 5° away, 100% lit (close)").Or.StartWith("Moon 5° away, 99% lit (close)"));
+            // Nov 9 is new moon; around 22:00 the Moon is below the horizon.
+            Assert.That(NightEstimator.MoonDuring(ra, dec, Site, new DateTime(2026, 11, 9, 21, 0, 0), new DateTime(2026, 11, 9, 23, 0, 0), Zone), Is.Null);
+        }
+
+        [Test]
+        public void Full_moon_is_high_at_midnight_and_down_at_noon() {
+            Assert.That(NightEstimator.MoonAltitude(Site, Zone, new DateTime(2026, 11, 24, 23, 59, 0)), Is.GreaterThan(55));
+            Assert.That(NightEstimator.MoonAltitude(Site, Zone, new DateTime(2026, 11, 24, 12, 0, 0)), Is.InRange(-22, -17)); // lower culmination: 45.5 + ~25 - 90
+        }
+    }
+
+    public class HealthReportTests {
+        [Test]
+        public void Disk_space_levels() {
+            Assert.That(HealthReport.Disk("D:\\Images", 100_000_000_000, 30_000_000_000, 20).Level, Is.EqualTo(HealthLevel.Ok));
+            Assert.That(HealthReport.Disk("D:\\Images", 40_000_000_000, 30_000_000_000, 20).Level, Is.EqualTo(HealthLevel.Warn));
+            Assert.That(HealthReport.Disk("D:\\Images", 20_000_000_000, 30_000_000_000, 20).Level, Is.EqualTo(HealthLevel.Fail));
+            Assert.That(HealthReport.Disk("D:\\Images", 40_000_000_000, 30_000_000_000, 20).Detail, Does.Contain("tonight needs ~30 GB"));
+        }
+
+        [Test]
+        public void Clock_levels() {
+            Assert.That(HealthReport.Clock(0.4).Level, Is.EqualTo(HealthLevel.Ok));
+            Assert.That(HealthReport.Clock(-5).Level, Is.EqualTo(HealthLevel.Warn));
+            Assert.That(HealthReport.Clock(120).Level, Is.EqualTo(HealthLevel.Fail));
+            Assert.That(HealthReport.Clock(null).Level, Is.EqualTo(HealthLevel.Warn));
+        }
+
+        [Test]
+        public void Cooling_levels() {
+            Assert.That(HealthReport.Cooling(true, true, -9.8, -10).Level, Is.EqualTo(HealthLevel.Ok));
+            Assert.That(HealthReport.Cooling(true, true, 2, -10).Level, Is.EqualTo(HealthLevel.Warn));
+            Assert.That(HealthReport.Cooling(true, false, 15, -10).Detail, Does.Contain("cooler off"));
+            Assert.That(HealthReport.Cooling(false, false, 20, 0).Level, Is.EqualTo(HealthLevel.Ok));
+        }
+
+        [Test]
+        public void Markdown_lists_problems_first_in_plain_text() {
+            var checks = new[] {
+                new HealthCheck("Camera", HealthLevel.Ok, "connected"),
+                new HealthCheck("Mount", HealthLevel.Fail, "not connected (ASCOM.Mount)"),
+                new HealthCheck("Clock", HealthLevel.Warn, "+5.0 s from internet time"),
+            };
+            var md = HealthReport.Markdown(checks, new DateTime(2026, 11, 20, 17, 30, 0), "Main");
+            Assert.That(md, Does.StartWith("**Health check 2026-11-20 17:30** — Main · 1 FAIL, 1 WARN of 3 checks"));
+            var lines = md.Split('\n');
+            Assert.That(lines[2], Does.StartWith("FAIL  Mount"));
+            Assert.That(lines[3], Does.StartWith("WARN  Clock"));
+            Assert.That(lines[4], Does.StartWith("OK    Camera"));
+            Assert.That(HealthReport.Summary(new[] { checks[0] }), Is.EqualTo("all 1 checks OK"));
+        }
+    }
+
+    public class FramingTests {
+        // 530 mm focal length, 3.76 µm pixels, 6248 × 4176 sensor (a common APS-C setup)
+        private static readonly FieldOfView Fov = Framing.FieldOfView(530, 3.76, 6248, 4176)!;
+
+        [Test]
+        public void Field_of_view_from_focal_length_and_sensor() {
+            Assert.That(Fov.ArcsecPerPixel, Is.EqualTo(1.463).Within(0.001));
+            Assert.That(Fov.WidthDeg, Is.EqualTo(2.54).Within(0.01));
+            Assert.That(Fov.HeightDeg, Is.EqualTo(1.70).Within(0.01));
+            Assert.That(Framing.FieldOfView(0, 3.76, 6248, 4176), Is.Null);
+        }
+
+        [Test]
+        public void Survey_url_is_invariant_culture_and_in_degrees() {
+            var url = Framing.SurveyUrl(5.5883, -5.391, 4.123456, 400);
+            Assert.That(url, Does.StartWith("https://alasky.cds.unistra.fr/hips-image-services/hips2fits?hips=CDS%2FP%2FDSS2%2Fcolor"));
+            Assert.That(url, Does.Contain("&ra=83.8245&dec=-5.391"));
+            Assert.That(url, Does.Contain("&fov=4.12346"));
+            Assert.That(url, Does.Contain("&width=400&height=400"));
+        }
+
+        [Test]
+        public void Sensor_outline_unrotated_is_centred_and_wide() {
+            var cut = Framing.CutoutDeg(Fov);
+            var c = Framing.SensorCorners(Fov, 0, cut, 400);
+            Assert.That(c[0].X, Is.LessThan(c[1].X));                 // top-left -> top-right along x
+            Assert.That(c[0].Y, Is.EqualTo(c[1].Y).Within(1e-9));
+            Assert.That((c[0].X + c[2].X) / 2, Is.EqualTo(200).Within(1e-9));
+            Assert.That(c[1].X - c[0].X, Is.GreaterThan(c[3].Y - c[0].Y)); // landscape
+            Assert.That(c.All(p => p.X > 0 && p.X < 400 && p.Y > 0 && p.Y < 400), Is.True);
+        }
+
+        [Test]
+        public void Rotation_turns_the_frame_counter_clockwise_on_a_north_up_image() {
+            var cut = Framing.CutoutDeg(Fov);
+            var top0 = Framing.TopMid(Framing.SensorCorners(Fov, 0, cut, 400));
+            var top90 = Framing.TopMid(Framing.SensorCorners(Fov, 90, cut, 400));
+            Assert.That(top0.Y, Is.LessThan(200));                      // sensor top points north
+            Assert.That(top90.X, Is.LessThan(200));                     // after +90° it points east (left)
+            Assert.That(top90.Y, Is.EqualTo(200).Within(1e-9));
+            // every rotation stays inside the cutout
+            for (int a = 0; a < 360; a += 15)
+                Assert.That(Framing.SensorCorners(Fov, a, cut, 400).All(p => p.X >= 0 && p.X <= 400 && p.Y >= 0 && p.Y <= 400), Is.True);
+        }
     }
 }

@@ -239,12 +239,14 @@ Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the 
 
 ### Night preview
 
-When *Load Plan* succeeds it also simulates the night on a clear sky and posts the result: when imaging starts, when each target runs, how many frames and how much exposure time it gets, and why it stops. It's posted with an altitude chart showing every target on one plot: **solid** while the target is being imaged, **dotted** when it isn't, vertical lines where the sequence changes target, twilight shading, and the *stop below* altitude.
+When *Load Plan* succeeds it also simulates the night on a clear sky and posts the result: when imaging starts, when each target runs, how many frames and how much exposure time it gets, and why it stops. It's posted with an altitude chart showing every target on one plot: **solid** while the target is being imaged, **dotted** when it isn't, vertical lines where the sequence changes target, twilight shading, the *stop below* altitude, and the Moon (pale dash-dot curve, labelled with its illumination). The Scheduler Preview chart below shows the Moon too.
 
 * **Same rules as the sequence.** Targets run in plan order from astronomical dusk (or from now, if the plan is loaded later). The simulation uses each target's `start`/`end`, *stop below* altitude, `max_frames`, `max_hours`, `next_target_altitude`, cycle mode and dawn, all checked between frames. A target that is already below the altitude limit when its turn comes is **skipped**, just as the real altitude condition skips it, and the preview warns about it (`target_not_reached`), so a missing `start` time shows up before the night begins.
 * **Overheads** come from the *Night preview* row on *Load Plan*: slew/center/rotate per target (3 min), autofocus (4 min, at target start if enabled and then every 60 min), dither + settle (30 s), per-frame download (5 s) and meridian flip (5 min). They only affect the estimate. Set them to match your template's triggers.
 * **Where it goes:** a `night_estimate` status event (with the per-target times as data), `<plan>.night.png` next to the plan in Dropbox, and Discord with the chart attached (Discord Alert's webhook, or `SKYSHARE_DISCORD_WEBHOOK`). The bot can post the same thing with `StatusTailer.image_for(ev)` (see `bot_integration.py`). Use one of the two, or the chart is posted twice.
-* Precision: J2000 coordinates and a low-precision sun, good to a few minutes. Code: `SkyShare.Planner.Core/NightEstimator.cs` (simulation, unit-tested), `NightSummary.cs` (text), `Runtime/NightChart.cs` (PNG).
+* **Moon:** each target's line gives how close the Moon gets while it is imaged (only while the Moon is up) and how lit it is, for example "Moon 25° away, 80% lit (close)". *Close* means over half lit and within 40°. "Moon down" means it stays below the horizon.
+* **Framing preview** (*with framing*, on by default): a second image in the same Discord message, with one sky-survey cutout per target (up to 9). Each shows the camera's frame at the planned rotation, north up and east left, so you can see what the frame should contain. The frame size comes from the profile's focal length and pixel size, and the sensor size from the camera (or the framing assistant settings if it isn't connected). Images come from CDS (colour DSS2), falling back to its mirror and then NASA SkyView (DSS2 red). Only target coordinates are sent, and cutouts are cached in `%LOCALAPPDATA%\SkyShare Planner\survey-cache`.
+* Precision: J2000 coordinates and a low-precision sun and Moon, good to a few minutes and a fraction of a degree. Code: `SkyShare.Planner.Core/NightEstimator.cs` (simulation, unit-tested), `NightSummary.cs` (text), `Runtime/NightChart.cs` (PNG), `Core/Framing.cs` + `Runtime/FramingPreview.cs` (framing).
 
 ### Scheduler Preview (Target Scheduler nights)
 
@@ -254,7 +256,24 @@ When *Load Plan* succeeds it also simulates the night on a clear sky and posts t
 * **Message:** each target's time windows, frames per filter, exposure time and *done% → after tonight%*. Then the order of visits when TS returns to a target, and each project's completion with a text bar, including its targets that aren't scheduled tonight.
 * **Caveat:** TS's preview is a "perfect" plan. Slews, autofocus, dithers and flips take no time, and every frame counts as accepted. A real clear night gets somewhat less done, and the message says so.
 * **Where it goes:** Discord (same webhook as above) and a `ts_preview` entry in the NINA log. If you set a folder on the instruction, the chart is also saved there as `<night>_target-scheduler.night.png`.
+* **Moon and framing:** each target's line includes the Moon at its closest over all of that target's visits. The *Framing preview* option attaches the same framing grid as above, using each TS target's rotation.
 * It reads the TS database but never writes to it: the preview works on in-memory copies. TS is found at run time, so SkyShare still works without it; the instruction then just warns. Code: `Runtime/TargetSchedulerBridge.cs` (TS calls), `Core/SchedulerSummary.cs` (blocks, text, chart model; unit-tested).
+
+### Health Check
+
+*SkyShare: Health Check* runs a list of checks and posts them to Discord as one message, problems first, each line marked OK, WARN or FAIL. Put it after connecting equipment and cooling the camera, before the first target.
+
+| Check | FAIL when | WARN when |
+|---|---|---|
+| Camera, mount, guider, focuser, filter wheel, rotator | the profile uses it but it isn't connected | |
+| Camera cooling | | cooler off, or more than 1.5 °C from the set point |
+| Disk space (image folder's drive) | less free than tonight needs (estimated frames from the loaded plan + 25% for calibration) | less than that plus *Spare disk space* (default 20 GB) |
+| Location | latitude/longitude not set in the profile | |
+| Dropbox (optional) | | not running |
+| Discord | the webhook URL is rejected (deleted or wrong) | no webhook set, or Discord can't be reached |
+| Clock (against `time.windows.com`) | more than 30 s off | more than 2 s off, or no time server reachable |
+
+By default it only reports. With *Stop on failure* the instruction fails when any check is FAIL, so the sequence's error behaviour decides what happens next. Code: `Runtime/HealthChecker.cs` (checks), `Core/HealthReport.cs` (levels and text; unit-tested).
 
 ### Darks
 
@@ -393,8 +412,8 @@ flowchart TD
     G -- succeeded --> H{More actions?}
     H -- yes --> I[Queue next job:<br/>--skip-transfer --skip-masters]
     I --> G
-    H -- no --> K[Done ✅ Discord]
-    G -- "failed / died / cancelled" --> X[Stop chain ❌ Discord]
+    H -- no --> K[Done, notify Discord]
+    G -- "failed / died / cancelled" --> X[Stop chain, notify Discord]
 ```
 
 * **Jobs run one at a time.** A job is queued only after the previous one succeeded, because the first job runs transfer and masters and later ones rely on that. They use SkyStack's normal job queue, so they appear in the dashboard, keep to the one-PixInsight-at-a-time rule, and need **Approve** if `session_watch.needs_approval: true`.
@@ -554,7 +573,7 @@ To post the night's progress, run `StatusTailer(PLANS_DIR).poll()` every 30 s fr
 
 Instant alerts and the night preview go to Discord through the webhook set in the **Discord Alert** plugin (NINA *Options → Plugins → Discord Alert*), so there's one place to change it. It's read on every post, so a change applies without restarting NINA. To send SkyShare's posts somewhere else, set the environment variable `SKYSHARE_DISCORD_WEBHOOK` on the acquisition PC; it overrides Discord Alert's (restart NINA after setting it). Neither is in the template or in Dropbox. Without either, nothing is posted from NINA.
 
-> ⚠️ `config.yaml` currently contains the bot token in plain text. Reset it in the Discord Developer Portal, then load it from an environment variable or an untracked file before this goes anywhere near the SkyStack repo.
+> **Warning:** `config.yaml` currently contains the bot token in plain text. Reset it in the Discord Developer Portal, then load it from an environment variable or an untracked file before this goes anywhere near the SkyStack repo.
 
 ### 9.6 SkyStack (compute server)
 

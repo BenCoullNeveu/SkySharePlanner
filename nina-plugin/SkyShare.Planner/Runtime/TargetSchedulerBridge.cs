@@ -73,7 +73,8 @@ namespace SkyShare.Planner.Runtime {
                 dynamic coords = x.Target.Coordinates;
                 return new TsTarget(x.Key, (string)x.Target.Name, (string)x.Project.Name,
                     (double)coords.RA, (double)coords.Dec, (double)x.Project.MinimumAltitude,
-                    x.Before, (double)x.Project.ExposureCompletionHelper.PercentComplete(x.Target));
+                    x.Before, (double)x.Project.ExposureCompletionHelper.PercentComplete(x.Target),
+                    (double)x.Target.Rotation);
             }).ToList();
             return new TsPreview(at, profile.Name, frames, result);
         }

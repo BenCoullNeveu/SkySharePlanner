@@ -40,7 +40,8 @@ namespace SkyShare.Planner.Core {
         DateTime? End,
         IReadOnlyList<FrameEstimate> Frames,
         string Outcome,
-        bool Skipped) {
+        bool Skipped,
+        MoonInfo? Moon = null) {
         public double IntegrationSeconds => Frames.Sum(f => f.Frames * f.Exposure);
         public int FrameCount => Frames.Sum(f => f.Frames);
     }
@@ -58,6 +59,18 @@ namespace SkyShare.Planner.Core {
         IReadOnlyList<TargetEstimate> Targets,
         DateTime? Finish,
         IReadOnlyList<string> Notes);
+
+    /// <summary>
+    /// The Moon relative to a target while it is imaged: closest separation (degrees,
+    /// counted only while the Moon is up) and illuminated fraction (0..1).
+    /// </summary>
+    public sealed record MoonInfo(double SeparationDeg, double Illumination) {
+        /// <summary>Bright and near enough to matter for broadband: over half lit and within 40°.</summary>
+        public bool IsClose => Illumination > 0.5 && SeparationDeg < 40;
+
+        public override string ToString() =>
+            $"Moon {SeparationDeg:0}° away, {Illumination * 100:0}% lit" + (IsClose ? " (close)" : "");
+    }
 
     /// <summary>Sun times of one night (local clock). DarknessLabel says which twilight Dusk/Dawn are.</summary>
     public sealed record NightWindow(DateOnly Night, DateTime Sunset, DateTime Dusk, DateTime Dawn, DateTime Sunrise, string DarknessLabel);
@@ -191,7 +204,8 @@ namespace SkyShare.Planner.Core {
             t = tLocal;
             var frames = tg.Exposures.Select((x, i) => new FrameEstimate(x.Filter, x.Exposure, counts[i])).ToList();
             if (total == 0) return Skip(tg, $"stopped before the first frame: {outcome}", arrive);
-            return new TargetEstimate(tg.Name, arrive, imagingStart, t, frames, outcome, false);
+            return new TargetEstimate(tg.Name, arrive, imagingStart, t, frames, outcome, false,
+                                      MoonDuring(raH, decD, site, imagingStart, t, zone));
         }
 
         private static TargetEstimate Skip(PlanTarget tg, string why, DateTime? arrive = null) =>
@@ -271,11 +285,86 @@ namespace SkyShare.Planner.Core {
             return h;
         }
 
-        public static double SunAltitude(Site site, TimeZoneInfo zone, DateTime local) {
-            var n = JulianDate(ToUtc(local, zone)) - 2451545.0;
+        /// <summary>Sun's ecliptic longitude in radians, n days from J2000.</summary>
+        private static double SunLongitude(double n) {
             var l = Rad(Norm360(280.460 + 0.9856474 * n));
             var g = Rad(Norm360(357.528 + 0.9856003 * n));
-            var lambda = l + Rad(1.915) * Math.Sin(g) + Rad(0.020) * Math.Sin(2 * g);
+            return l + Rad(1.915) * Math.Sin(g) + Rad(0.020) * Math.Sin(2 * g);
+        }
+
+        /// <summary>
+        /// Moon's geocentric ecliptic longitude/latitude (radians) and horizontal parallax
+        /// (degrees): the Astronomical Almanac's low-precision series, good to ~0.3°.
+        /// </summary>
+        private static (double Lambda, double Beta, double Parallax) MoonEcliptic(DateTime utc) {
+            var T = (JulianDate(utc) - 2451545.0) / 36525;
+            double S(double a, double b) => Math.Sin(Rad(Norm360(a + b * T)));
+            double C(double a, double b) => Math.Cos(Rad(Norm360(a + b * T)));
+            var lambda = 218.32 + 481267.881 * T
+                + 6.29 * S(135.0, 477198.87) - 1.27 * S(259.3, -413335.36) + 0.66 * S(235.7, 890534.22)
+                + 0.21 * S(269.9, 954397.74) - 0.19 * S(357.5, 35999.05) - 0.11 * S(186.5, 966404.03);
+            var beta = 5.13 * S(93.3, 483202.02) + 0.28 * S(228.2, 960400.89)
+                - 0.28 * S(318.3, 6003.15) - 0.17 * S(217.6, -407332.21);
+            var parallax = 0.9508 + 0.0518 * C(135.0, 477198.87) + 0.0095 * C(259.3, -413335.36)
+                + 0.0078 * C(235.7, 890534.22) + 0.0028 * C(269.9, 954397.74);
+            return (Rad(Norm360(lambda)), Rad(beta), parallax);
+        }
+
+        /// <summary>The Moon's geocentric RA (hours) and Dec (degrees).</summary>
+        public static (double RaHours, double DecDeg) MoonRaDec(TimeZoneInfo zone, DateTime local) {
+            var (lambda, beta, _) = MoonEcliptic(ToUtc(local, zone));
+            double l = Math.Cos(beta) * Math.Cos(lambda);
+            double m = 0.9175 * Math.Cos(beta) * Math.Sin(lambda) - 0.3978 * Math.Sin(beta);
+            double n = 0.3978 * Math.Cos(beta) * Math.Sin(lambda) + 0.9175 * Math.Sin(beta);
+            return (Norm360(Deg(Math.Atan2(m, l))) / 15, Deg(Math.Asin(n)));
+        }
+
+        /// <summary>The Moon's altitude as seen from the site (parallax included: up to ~1° lower than geocentric).</summary>
+        public static double MoonAltitude(Site site, TimeZoneInfo zone, DateTime local) {
+            var (ra, dec) = MoonRaDec(zone, local);
+            var (_, _, parallax) = MoonEcliptic(ToUtc(local, zone));
+            var geo = Altitude(ra, dec, site, zone, local);
+            return geo - parallax * Math.Cos(Rad(geo));
+        }
+
+        /// <summary>Angle between two RA/Dec positions, in degrees.</summary>
+        public static double Separation(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg) {
+            double d1 = Rad(dec1Deg), d2 = Rad(dec2Deg), dra = Rad((ra1Hours - ra2Hours) * 15);
+            var c = Math.Sin(d1) * Math.Sin(d2) + Math.Cos(d1) * Math.Cos(d2) * Math.Cos(dra);
+            return Deg(Math.Acos(Math.Clamp(c, -1, 1)));
+        }
+
+        /// <summary>
+        /// The Moon while a target is imaged from..to: the closest it gets (only while
+        /// the Moon is above the horizon) and how lit it is. Null when the Moon stays down.
+        /// </summary>
+        public static MoonInfo? MoonDuring(double raHours, double decDeg, Site site, DateTime from, DateTime to, TimeZoneInfo? zone = null) {
+            zone ??= TimeZoneInfo.Local;
+            MoonInfo? closest = null;
+            for (var t = from; t <= to || t == from; t = t.AddMinutes(15)) {
+                if (MoonAltitude(site, zone, t) > 0) {
+                    var (mra, mdec) = MoonRaDec(zone, t);
+                    var sep = Separation(raHours, decDeg, mra, mdec);
+                    if (closest is null || sep < closest.SeparationDeg)
+                        closest = new MoonInfo(sep, MoonIllumination(zone, t));
+                }
+                if (t >= to) break;
+            }
+            return closest;
+        }
+
+        /// <summary>Illuminated fraction of the Moon (0 = new, 1 = full).</summary>
+        public static double MoonIllumination(TimeZoneInfo zone, DateTime local) {
+            var utc = ToUtc(local, zone);
+            var (lambda, beta, _) = MoonEcliptic(utc);
+            var sun = SunLongitude(JulianDate(utc) - 2451545.0);
+            var cosElongation = Math.Cos(beta) * Math.Cos(lambda - sun);
+            return (1 - cosElongation) / 2;
+        }
+
+        public static double SunAltitude(Site site, TimeZoneInfo zone, DateTime local) {
+            var n = JulianDate(ToUtc(local, zone)) - 2451545.0;
+            var lambda = SunLongitude(n);
             var eps = Rad(23.439 - 0.0000004 * n);
             var ra = Math.Atan2(Math.Cos(eps) * Math.Sin(lambda), Math.Cos(lambda));
             var dec = Math.Asin(Math.Sin(eps) * Math.Sin(lambda));

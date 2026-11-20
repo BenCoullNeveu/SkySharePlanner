@@ -52,7 +52,7 @@ def publish_from_bot(seq: dict, plans_dir: str, *, overwrite: bool = False) -> t
     path = write_plan(plan, plans_dir, overwrite=overwrite, known_filters=KNOWN_FILTERS)
     text = summary(plan)
     if (w := rotation_warning(plan, HAS_ROTATOR)):
-        text += f"\n⚠️ {w}"
+        text += f"\nWARNING: {w}"
     return path, text
 
 

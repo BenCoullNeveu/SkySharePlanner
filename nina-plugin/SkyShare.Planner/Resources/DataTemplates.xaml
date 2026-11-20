@@ -54,6 +54,8 @@
                     <StackPanel Margin="0,4,0,0" Orientation="Horizontal"
                                 ToolTip="Clear-sky estimate of tonight, posted to Discord with an altitude chart. These overheads only affect the estimate.">
                         <CheckBox VerticalAlignment="Center" Content="Night preview" IsChecked="{Binding SendNightPreview}" />
+                        <CheckBox Margin="8,0,0,0" VerticalAlignment="Center" Content="with framing" IsChecked="{Binding SendFramingPreview}"
+                                  ToolTip="Attach a sky-survey cutout of each target with the camera frame drawn at its rotation (images from CDS, cached)." />
                         <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="overheads: slew/center" />
                         <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding SlewCenterMinutes}" />
                         <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min, autofocus" />
@@ -114,8 +116,29 @@
                                    Text="Posts Target Scheduler's plan preview to Discord. Also save chart to" />
                         <TextBox MinWidth="260" Margin="6,0,0,0" VerticalAlignment="Center"
                                  Text="{Binding SaveFolder}" ToolTip="Optional folder for the chart PNG. Empty = Discord only." />
+                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Framing preview" IsChecked="{Binding SendFramingPreview}"
+                                  ToolTip="Attach a sky-survey cutout of each scheduled target with the camera frame drawn at its rotation." />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap" Text="{Binding LastSummary}" />
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <DataTemplate DataType="{x:Type local:SkyShareHealthCheck}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="Spare disk space" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding MinFreeGb}"
+                                 ToolTip="Wanted on top of tonight's estimated frames." />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="GB" />
+                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Check Dropbox" IsChecked="{Binding CheckDropbox}" />
+                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Stop on failure" IsChecked="{Binding StopOnFailure}"
+                                  ToolTip="Fail this instruction when any check is FAIL, so the sequence's error behaviour applies." />
+                    </StackPanel>
+                    <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap" Text="{Binding LastResult}" />
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>

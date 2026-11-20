@@ -242,7 +242,7 @@ index 0000000..c01ecbe
 +            m = read_manifest(path)
 +        except ManifestError as e:
 +            if entry.get("status") != "error" or entry.get("error") != str(e):
-+                update(path.name, {"status": "error", "error": str(e)}, f"⚠️ {path.name}: {e}")
++                update(path.name, {"status": "error", "error": str(e)}, f"WARNING: {path.name}: {e}")
 +            continue
 +
 +        stamp = m.get("completed_utc")
@@ -261,7 +261,7 @@ index 0000000..c01ecbe
 +        if m.get("outcome") == "nothing_captured" or not m.get("actions"):
 +            why = ("nothing captured" if m.get("outcome") == "nothing_captured" else f"darks only ({(m.get('darks') or {}).get('frames_total', 0)} frames)" if not any(t.get("ran") for t in m.get("targets", [])) else "processing disabled in plan")
 +            update(path.name, {**entry, "status": "done", "jobs": [], "note": why},
-+                   f"🌙 {label}: {why} - no pipeline job.")
++                   f"{label}: {why} - no pipeline job.")
 +            continue
 +
 +        arr = arrival(config, m)
@@ -283,9 +283,9 @@ index 0000000..c01ecbe
 +                            "missing": missing})
 +            continue
 +
-+        msg = f"🔭 {label}: data is in - processing {len(argvs)} target(s): " + ", ".join(a[2] for a in argvs)
++        msg = f"{label}: data is in - processing {len(argvs)} target(s): " + ", ".join(a[2] for a in argvs)
 +        if missing:
-+            msg += f"\n⚠️ running without every frame after {cfg['max_wait_hours']} h: " + "; ".join(missing)
++            msg += f"\nWARNING: running without every frame after {cfg['max_wait_hours']} h: " + "; ".join(missing)
 +        if notes:
 +            msg += "\n" + "\n".join(notes)
 +        entry.update(status="processing", pending=argvs, jobs=[], current=None, missing=missing, notes=notes,
@@ -317,7 +317,7 @@ index 0000000..c01ecbe
 +        if status in FAILED_STATUSES:
 +            left = len(entry.get("pending", []))
 +            update(name, {**entry, "status": "failed", "failed_job": current, "failed_status": status},
-+                   f"❌ {label}: job {current} {status}"
++                   f"FAILED: {label}: job {current} {status}"
 +                   + (f"; {left} remaining target(s) not started" if left else "")
 +                   + " - see pipeline_jobs/ log, fix, then re-run from the dashboard.")
 +            return
@@ -329,12 +329,12 @@ index 0000000..c01ecbe
 +        entry["current"] = job["id"]
 +        entry.setdefault("jobs", []).append(job["id"])
 +        # with approval on, every step needs a click - say so each time
-+        update(name, entry, f"▶️ {label}: {argv[2]} is awaiting your approval in the dashboard"
++        update(name, entry, f"{label}: {argv[2]} is awaiting your approval in the dashboard"
 +               if cfg["needs_approval"] else None)
 +        return
 +
 +    update(name, {**entry, "status": "done"},
-+           f"✅ {label}: all {len(entry.get('jobs', []))} pipeline job(s) finished.")
++           f"{label}: all {len(entry.get('jobs', []))} pipeline job(s) finished.")
 +
 +
 +def _report_overdue(plans_dir: Path, state: Dict[str, Any], cfg: Mapping[str, Any], now: datetime,
@@ -358,7 +358,7 @@ index 0000000..c01ecbe
 +        if not dry_run:
 +            reported.add(plan.name)
 +            try:
-+                notify(f"⚠️ {plan.name}: the night is over but NINA wrote no session manifest "
++                notify(f"WARNING: {plan.name}: the night is over but NINA wrote no session manifest "
 +                       "(sequence aborted before 'SkyShare: Session Complete'?). Nothing was queued.")
 +            except Exception as e:
 +                logger.warning("session_watch: notify failed: %s", e)

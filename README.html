@@ -451,8 +451,8 @@
     G -- succeeded --&gt; H{More actions?}
     H -- yes --&gt; I[Queue next job:&lt;br/&gt;--skip-transfer --skip-masters]
     I --&gt; G
-    H -- no --&gt; K[Done ✅ Discord]
-    G -- &quot;failed / died / cancelled&quot; --&gt; X[Stop chain ❌ Discord]
+    H -- no --&gt; K[Done, notify Discord]
+    G -- &quot;failed / died / cancelled&quot; --&gt; X[Stop chain, notify Discord]
 </code></pre>
 <ul>
 <li><strong>Jobs run one at a time.</strong> A job is queued only after the previous one succeeded, because the first job runs transfer and masters and later ones rely on that. They use SkyStack's normal job queue, so they appear in the dashboard, keep to the one-PixInsight-at-a-time rule, and need <strong>Approve</strong> if <code>session_watch.needs_approval: true</code>.</li>
@@ -587,7 +587,7 @@ skystack-integration/                 drop-in for the SkyStack repo
 <p>To post the night's progress, run <code>StatusTailer(PLANS_DIR).poll()</code> every 30 s from a <code>tasks.loop</code>. There's an example in the <code>bot_integration.py</code> docstring.</p>
 <p>Optional instant alerts: set the environment variable <code>SKYSHARE_DISCORD_WEBHOOK</code> on the acquisition PC. It's kept out of the template and out of Dropbox deliberately.</p>
 <blockquote>
-<p>⚠️ <code>config.yaml</code> currently contains the bot token in plain text. Reset it in the Discord Developer Portal, then load it from an environment variable or an untracked file before this goes anywhere near the SkyStack repo.</p>
+<p><strong>Warning:</strong> <code>config.yaml</code> currently contains the bot token in plain text. Reset it in the Discord Developer Portal, then load it from an environment variable or an untracked file before this goes anywhere near the SkyStack repo.</p>
 </blockquote>
 <h3 id="96-skystack-compute-server">9.6 SkyStack (compute server)</h3>
 <p>From the SkyStack repo root, run <code>git apply path/to/skystack-session-watch.patch</code>. Alternatively, copy <code>skystack-integration/skystack/session_watch.py</code> and the test into place and make the two small edits shown in the patch: one line in <code>skystack_server.tick</code>, and the config section. Then set <code>session_watch.enabled: true</code> and restart <code>skystack_server.py</code>. Discord messages use the existing <code>SKYSTACK_DISCORD_WEBHOOK</code>.</p>

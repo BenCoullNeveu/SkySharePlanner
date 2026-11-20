@@ -39,10 +39,12 @@ namespace SkyShare.Planner.Runtime {
         }
 
         /// <summary>Something was skipped or looks wrong, but the night continues.</summary>
-        public static void Warn(string @event, string message, object? data = null) {
+        /// <param name="postToDiscord">false when the same news was already posted another way.</param>
+        public static void Warn(string @event, string message, object? data = null, bool postToDiscord = true) {
             Logger.Warning($"[SkyShare] {@event}: {message}");
             Notify(() => Notification.ShowWarning($"SkyShare: {message}"));
-            Send("warning", @event, message, data);
+            if (postToDiscord) Send("warning", @event, message, data);
+            else WriteStatusLine("warning", @event, message, data);
         }
 
         /// <summary>Something failed.</summary>
@@ -84,10 +86,17 @@ namespace SkyShare.Planner.Runtime {
         /// Progress with a picture: status file (data only) + webhook message with the
         /// image attached. The message is posted as-is (it is already formatted).
         /// </summary>
-        public static void ReportWithImage(string @event, string summary, string markdown, byte[]? png, string fileName, object? data = null) {
+        public static void ReportWithImage(string @event, string summary, string markdown, byte[]? png, string fileName, object? data = null) =>
+            ReportWithImages(@event, summary, markdown, png is null ? Array.Empty<Attachment>() : new[] { new Attachment(png, fileName) }, data);
+
+        /// <summary>An image attached to a Discord post. Type is the MIME type.</summary>
+        public sealed record Attachment(byte[] Data, string Name, string Type = "image/png");
+
+        /// <summary>Like ReportWithImage, with several images in one Discord message (Discord allows 10).</summary>
+        public static void ReportWithImages(string @event, string summary, string markdown, IReadOnlyList<Attachment> files, object? data = null) {
             Logger.Info($"[SkyShare] {@event}: {summary}");
             WriteStatusLine("info", @event, summary, data);
-            _ = PostWebhookAsync(markdown, png, fileName);
+            _ = PostWebhookAsync(markdown, files);
         }
 
         /// <summary>
@@ -129,22 +138,24 @@ namespace SkyShare.Planner.Runtime {
             }
         }
 
-        private static async Task PostWebhookAsync(string content, byte[]? file = null, string fileName = "image.png") {
+        private static async Task PostWebhookAsync(string content, IReadOnlyList<Attachment>? files = null) {
             try {
                 var url = WebhookUrl();
                 if (string.IsNullOrWhiteSpace(url)) return;
                 var body = JsonSerializer.Serialize(new { content });
                 HttpContent request;
-                if (file is null) {
+                if (files is null || files.Count == 0) {
                     request = new StringContent(body, Encoding.UTF8, "application/json");
                 } else {
                     // Discord: JSON in "payload_json", attachments as files[n]
                     var form = new MultipartFormDataContent {
                         { new StringContent(body, Encoding.UTF8, "application/json"), "payload_json" },
                     };
-                    var image = new ByteArrayContent(file);
-                    image.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png");
-                    form.Add(image, "files[0]", fileName);
+                    for (int i = 0; i < Math.Min(files.Count, 10); i++) {
+                        var image = new ByteArrayContent(files[i].Data);
+                        image.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(files[i].Type);
+                        form.Add(image, $"files[{i}]", files[i].Name);
+                    }
                     request = form;
                 }
                 using (request)

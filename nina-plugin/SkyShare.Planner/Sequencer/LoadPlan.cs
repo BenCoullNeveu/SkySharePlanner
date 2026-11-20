@@ -36,14 +36,16 @@ namespace SkyShare.Planner.Sequencer {
     public class LoadPlan : SequenceItem, IValidatable {
         private readonly IProfileService profileService;
         private readonly IRotatorMediator rotatorMediator;
+        private readonly ICameraMediator cameraMediator;
 
         [ImportingConstructor]
-        public LoadPlan(IProfileService profileService, IRotatorMediator rotatorMediator) {
+        public LoadPlan(IProfileService profileService, IRotatorMediator rotatorMediator, ICameraMediator cameraMediator) {
             this.profileService = profileService;
             this.rotatorMediator = rotatorMediator;
+            this.cameraMediator = cameraMediator;
         }
 
-        private LoadPlan(LoadPlan copyMe) : this(copyMe.profileService, copyMe.rotatorMediator) {
+        private LoadPlan(LoadPlan copyMe) : this(copyMe.profileService, copyMe.rotatorMediator, copyMe.cameraMediator) {
             CopyMetaData(copyMe);
             PlansDirectory = copyMe.PlansDirectory;
             RolloverHour = copyMe.RolloverHour;
@@ -53,6 +55,7 @@ namespace SkyShare.Planner.Sequencer {
             DitherEvery = copyMe.DitherEvery;
             CenterDriftThreshold = copyMe.CenterDriftThreshold;
             SendNightPreview = copyMe.SendNightPreview;
+            SendFramingPreview = copyMe.SendFramingPreview;
             SlewCenterMinutes = copyMe.SlewCenterMinutes;
             AutofocusMinutes = copyMe.AutofocusMinutes;
             AutofocusEveryMinutes = copyMe.AutofocusEveryMinutes;
@@ -109,6 +112,11 @@ namespace SkyShare.Planner.Sequencer {
         private bool sendNightPreview = true;
         [JsonProperty]
         public bool SendNightPreview { get => sendNightPreview; set { sendNightPreview = value; RaisePropertyChanged(); } }
+
+        private bool sendFramingPreview = true;
+        /// <summary>Attach a sky-survey cutout per target with the camera frame at its rotation.</summary>
+        [JsonProperty]
+        public bool SendFramingPreview { get => sendFramingPreview; set { sendFramingPreview = value; RaisePropertyChanged(); } }
 
         private double slewCenterMinutes = 3;
         /// <summary>Slew, plate solve, center and rotate, per target.</summary>
@@ -237,7 +245,8 @@ namespace SkyShare.Planner.Sequencer {
                 warnings = issues.Where(i => i.Severity == Severity.Warning).Select(i => i.Message),
             });
 
-            if (SendNightPreview) await NightPreview.Publish(plan, path, profileService, EstimateSettings);
+            if (SendNightPreview) await NightPreview.Publish(plan, path, profileService, EstimateSettings,
+                                                         SendFramingPreview ? cameraMediator : null);
         }
 
         private static void Fail(string @event, string message) {

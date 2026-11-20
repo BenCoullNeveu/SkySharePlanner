@@ -13,7 +13,7 @@ namespace SkyShare.Planner.Core {
     /// </summary>
     public sealed record TsTarget(
         string TargetKey, string Name, string Project, double RaHours, double DecDeg, double MinAltitude,
-        double PercentBefore, double PercentAfter);
+        double PercentBefore, double PercentAfter, double Rotation = 0);
 
     /// <summary>What Target Scheduler's preview planner says it would do from From onwards.</summary>
     public sealed record TsPreview(DateTime From, string Profile, IReadOnlyList<TsFrame> Frames, IReadOnlyList<TsTarget> Targets);
@@ -60,13 +60,22 @@ namespace SkyShare.Planner.Core {
                          .Where(byKey.ContainsKey).Select(k => byKey[k]).ToList();
         }
 
-        public static string Describe(TsTarget t, IReadOnlyList<TsBlock> blocks) {
+        /// <summary>The Moon at its closest to this target over all of tonight's visits; null if down or no site.</summary>
+        public static MoonInfo? Moon(TsTarget t, IReadOnlyList<TsBlock> blocks, Site? site, TimeZoneInfo? zone = null) {
+            if (site is null) return null;
+            return blocks.Where(b => b.TargetKey == t.TargetKey)
+                .Select(b => NightEstimator.MoonDuring(t.RaHours, t.DecDeg, site, b.Start, b.End, zone))
+                .Where(m => m != null).OrderBy(m => m!.SeparationDeg).FirstOrDefault();
+        }
+
+        public static string Describe(TsTarget t, IReadOnlyList<TsBlock> blocks, Site? site = null, TimeZoneInfo? zone = null) {
             var mine = blocks.Where(b => b.TargetKey == t.TargetKey).ToList();
             var times = string.Join(", ", mine.Select(b => $"{b.Start:HH:mm}–{b.End:HH:mm}"));
             var frames = string.Join(", ", mine.SelectMany(b => b.Frames)
                 .GroupBy(f => (f.Filter, f.Exposure))
                 .Select(g => $"{g.Key.Filter} {g.Key.Exposure:0.##}s×{g.Sum(f => f.Frames)}"));
-            return $"{times} · {frames} · {NightSummary.Hours(mine.Sum(b => b.IntegrationSeconds))} · {Progress(t)}";
+            var moon = site is null ? "" : (Moon(t, blocks, site, zone) is { } m ? $" · {m}" : " · Moon down");
+            return $"{times} · {frames} · {NightSummary.Hours(mine.Sum(b => b.IntegrationSeconds))} · {Progress(t)}{moon}";
         }
 
         public static string Progress(TsTarget t) =>
@@ -74,13 +83,13 @@ namespace SkyShare.Planner.Core {
                 ? $"{t.PercentBefore:0}% → {t.PercentAfter:0}%"
                 : $"{t.PercentBefore:0}%";
 
-        public static ChartModel Chart(TsPreview p, NightWindow window) {
+        public static ChartModel Chart(TsPreview p, NightWindow window, Site? site = null, TimeZoneInfo? zone = null) {
             var blocks = Blocks(p.Frames);
             var scheduled = Scheduled(p, blocks);
             var series = scheduled.Select(t => new ChartSeries(
                 $"{t.Name} ({t.Project})", t.RaHours, t.DecDeg,
                 blocks.Where(b => b.TargetKey == t.TargetKey).Select(b => new ChartSegment(b.Start, b.End)).ToList(),
-                Describe(t, blocks), false, t.PercentBefore, t.PercentAfter)).ToList();
+                Describe(t, blocks, site, zone), false, t.PercentBefore, t.PercentAfter)).ToList();
             var limits = scheduled.Select(t => t.MinAltitude).Distinct().ToList();
             return new ChartModel(
                 $"Target Scheduler {window.Night:yyyy-MM-dd}" + (string.IsNullOrWhiteSpace(p.Profile) ? "" : $" — {p.Profile}"),
@@ -89,7 +98,7 @@ namespace SkyShare.Planner.Core {
         }
 
         /// <summary>Discord-flavoured markdown (under Discord's 2000-character limit).</summary>
-        public static string Markdown(TsPreview p, NightWindow window) {
+        public static string Markdown(TsPreview p, NightWindow window, Site? site = null, TimeZoneInfo? zone = null) {
             var blocks = Blocks(p.Frames);
             var scheduled = Scheduled(p, blocks);
             var lines = new List<string> {
@@ -99,11 +108,11 @@ namespace SkyShare.Planner.Core {
             };
             if (blocks.Count == 0) {
                 lines.Add(p.Targets.Count == 0
-                    ? "⚠️ No active Target Scheduler projects with exposures left."
-                    : "⚠️ Target Scheduler would not image anything tonight.");
+                    ? "WARNING: No active Target Scheduler projects with exposures left."
+                    : "WARNING: Target Scheduler would not image anything tonight.");
             } else {
                 for (int i = 0; i < scheduled.Count; i++)
-                    lines.Add($"{i + 1}. **{scheduled[i].Name}** ({scheduled[i].Project}) {Describe(scheduled[i], blocks)}");
+                    lines.Add($"{i + 1}. **{scheduled[i].Name}** ({scheduled[i].Project}) {Describe(scheduled[i], blocks, site, zone)}");
                 if (blocks.Count > 1 && blocks.Select(b => b.TargetKey).Distinct().Count() < blocks.Count)
                     lines.Add($"Order: {string.Join(" → ", blocks.Select(b => $"{Name(p, b.TargetKey)} {b.Start:HH:mm}"))}");
 
