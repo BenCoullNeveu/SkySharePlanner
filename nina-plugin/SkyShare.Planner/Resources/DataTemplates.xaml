@@ -11,7 +11,7 @@
       The two containers (SkyShareTargets, SkyShareFlats) derive from SequentialContainer.
       WPF resolves implicit DataTemplates up the type hierarchy, so they reuse NINA's
       built-in Sequential Instruction Set view - no template needed here. Their settings
-      live on Load Plan, so the containers don't need a custom view.
+      are on the plugin's options page, so the containers don't need a custom view.
       VERIFY on first load: if they render blank, copy NINA's SequentialContainer
       DataTemplate (or Target Scheduler's container template) and add it below.
     -->
@@ -21,55 +21,10 @@
             <nina:SequenceBlockView.SequenceItemContent>
                 <StackPanel Orientation="Vertical">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock VerticalAlignment="Center" Text="Plans folder" />
-                        <TextBox MinWidth="320" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding PlansDirectory}" />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Night rolls over at" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding RolloverHour}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="h" />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Wait for sync" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding WaitForPlanMinutes}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min" />
-                    </StackPanel>
-                    <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
-                        <TextBlock VerticalAlignment="Center" Text="Targets: stop below" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding MinAltitude}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="° altitude" />
-                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Autofocus at start"
-                                  IsChecked="{Binding AutofocusAtStart}" />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Dither every" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding DitherEvery}"
-                                 ToolTip="Fixed-count targets only. Cycle targets always dither once per cycle." />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="frames (fixed-count targets; 0 = off)" />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Center drift threshold" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center"
-                                 Text="{Binding CenterDriftThreshold}"
-                                 ToolTip="Center After Drift on every target: re-center when the target has drifted more than this." />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="arcmin" />
-                    </StackPanel>
-                    <StackPanel Margin="0,4,0,0" Orientation="Horizontal"
-                                ToolTip="Clear-sky estimate of tonight, posted to Discord with an altitude chart. These overheads only affect the estimate.">
-                        <CheckBox VerticalAlignment="Center" Content="Night preview" IsChecked="{Binding SendNightPreview}" />
-                        <CheckBox Margin="8,0,0,0" VerticalAlignment="Center" Content="with framing" IsChecked="{Binding SendFramingPreview}"
-                                  ToolTip="Attach a sky-survey cutout of each target with the camera frame drawn at its rotation (images from CDS, cached)." />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="overheads: slew/center" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding SlewCenterMinutes}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min, autofocus" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding AutofocusMinutes}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min every" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding AutofocusEveryMinutes}"
-                                 ToolTip="How often your template's autofocus triggers fire on average. 0 = only at the start of each target." />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min, dither" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding DitherSeconds}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="s, per frame" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding FrameOverheadSeconds}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="s, meridian flip" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding MeridianFlipMinutes}" />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min" />
+                        <TextBlock VerticalAlignment="Center" Opacity="0.7" Text="Plans from " />
+                        <TextBlock VerticalAlignment="Center" Text="{Binding Settings.PlansDirectory}" />
+                        <TextBlock VerticalAlignment="Center" Opacity="0.7"
+                                   Text="  (settings: Options &gt; Plugins &gt; SkyShare Planner)" />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap"
                                Text="{Binding LoadedSummary}" />
@@ -130,18 +85,200 @@
             <nina:SequenceBlockView.SequenceItemContent>
                 <StackPanel Orientation="Vertical">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock VerticalAlignment="Center" Text="Spare disk space" />
-                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding MinFreeGb}"
-                                 ToolTip="Wanted on top of tonight's estimated frames." />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="GB" />
-                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Check Dropbox" IsChecked="{Binding CheckDropbox}" />
-                        <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" Content="Stop on failure" IsChecked="{Binding StopOnFailure}"
+                        <CheckBox VerticalAlignment="Center" Content="Stop on failure" IsChecked="{Binding StopOnFailure}"
                                   ToolTip="Fail this instruction when any check is FAIL, so the sequence's error behaviour applies." />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Opacity="0.7"
+                                   Text="Thresholds: Options &gt; Plugins &gt; SkyShare Planner" />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap" Text="{Binding LastResult}" />
                 </StackPanel>
             </nina:SequenceBlockView.SequenceItemContent>
         </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <!--
+      Options > Plugins > SkyShare Planner. NINA finds this by key ("<plugin name>_Options")
+      and sets its DataContext to the plugin (SkySharePlannerPlugin). Values are stored in
+      the active NINA profile and apply to every sequence.
+    -->
+    <DataTemplate x:Key="SkyShare Planner_Options">
+        <StackPanel Orientation="Vertical" Margin="0,0,0,10">
+            <StackPanel.Resources>
+                <!-- Theme text colour: NINA's PrimaryBrush follows the chosen colour schema (light/dark/red) -->
+                <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                </Style>
+                <Style x:Key="Head" TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="FontSize" Value="14" />
+                    <Setter Property="Margin" Value="0,14,0,4" />
+                </Style>
+                <Style x:Key="Lbl" TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                    <Setter Property="Width" Value="230" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                </Style>
+                <Style x:Key="Unit" TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource PrimaryBrush}" />
+                    <Setter Property="Margin" Value="6,0,0,0" />
+                    <Setter Property="Opacity" Value="0.7" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                </Style>
+                <Style x:Key="Row" TargetType="StackPanel">
+                    <Setter Property="Orientation" Value="Horizontal" />
+                    <Setter Property="Margin" Value="0,2,0,2" />
+                </Style>
+            </StackPanel.Resources>
+
+            <!-- Shown only while a newer version waits in NINA's staging folder -->
+            <Border Margin="0,0,0,10" Padding="10,6" CornerRadius="3" BorderThickness="1"
+                    BorderBrush="#FFB74D" Background="#33FFB74D">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Update.IsPending}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Margin="12,0,0,0" Padding="12,3" VerticalAlignment="Center"
+                            Command="{Binding RestartCommand}" Content="Restart N.I.N.A." />
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock FontWeight="SemiBold" Text="Update ready: restart N.I.N.A. to load it" />
+                        <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Update.Message}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                <TextBlock Opacity="0.7" VerticalAlignment="Center">
+                    <Run Text="SkyShare Planner" />
+                    <Run Text="{Binding Update.RunningVersion, Mode=OneWay}" />
+                </TextBlock>
+                <Button Margin="12,0,0,0" Padding="10,2" Command="{Binding RestartCommand}" Content="Restart N.I.N.A."
+                        ToolTip="Restart N.I.N.A., for example after installing an update. Not available while a sequence runs." />
+            </StackPanel>
+            <TextBlock Opacity="0.7" TextWrapping="Wrap"
+                       Text="These apply to every sequence and are saved in the active NINA profile. Instructions read them when they run, so a change here needs no sequence edit." />
+
+            <!-- ===== health check ===== -->
+            <TextBlock Style="{StaticResource Head}" Text="Health check" />
+            <StackPanel Style="{StaticResource Row}">
+                <Button Command="{Binding RunHealthCheckCommand}" Padding="10,2" Content="Run checks" />
+                <Button Command="{Binding PostHealthCheckCommand}" Margin="8,0,0,0" Padding="10,2" Content="Run and post to Discord" />
+                <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="{Binding HealthSummary}" />
+            </StackPanel>
+            <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding HealthRows}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal" Margin="0,1,0,1">
+                            <TextBlock Width="46" FontWeight="SemiBold" Text="{Binding Level}">
+                                <TextBlock.Foreground>
+                                    <SolidColorBrush Color="{Binding Color}" />
+                                </TextBlock.Foreground>
+                            </TextBlock>
+                            <TextBlock Width="130" Text="{Binding Name}" />
+                            <TextBlock Opacity="0.8" TextWrapping="Wrap" MaxWidth="700" Text="{Binding Detail}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Style="{StaticResource Row}" Margin="0,6,0,2">
+                <TextBlock Style="{StaticResource Lbl}" Text="Spare disk space" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.MinFreeGb}"
+                         ToolTip="Wanted on top of tonight's estimated frames." />
+                <TextBlock Style="{StaticResource Unit}" Text="GB on top of tonight's frames" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Check that Dropbox is running" />
+                <CheckBox VerticalAlignment="Center" IsChecked="{Binding Settings.CheckDropbox}" />
+            </StackPanel>
+
+            <!-- ===== plans ===== -->
+            <TextBlock Style="{StaticResource Head}" Text="Plans (Load Plan)" />
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Plans folder" />
+                <TextBox Width="420" VerticalAlignment="Center" Text="{Binding Settings.PlansDirectory}"
+                         ToolTip="Dropbox folder the bot / dashboard write *.plan.json into." />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Night rolls over at" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.RolloverHour}"
+                         ToolTip="Before this local hour it is still last evening's night." />
+                <TextBlock Style="{StaticResource Unit}" Text="h (local)" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Wait for the plan to sync" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.WaitForPlanMinutes}" />
+                <TextBlock Style="{StaticResource Unit}" Text="min, then fail" />
+            </StackPanel>
+
+            <!-- ===== targets ===== -->
+            <TextBlock Style="{StaticResource Head}" Text="Targets" />
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Stop a target below" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.MinAltitude}" />
+                <TextBlock Style="{StaticResource Unit}" Text="° altitude" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Autofocus at the start of each target" />
+                <CheckBox VerticalAlignment="Center" IsChecked="{Binding Settings.AutofocusAtStart}" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Dither every" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.DitherEvery}" />
+                <TextBlock Style="{StaticResource Unit}" Text="frames (fixed-count targets; 0 = off; cycle targets dither once per cycle)" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Re-center after drifting more than" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.CenterDriftThreshold}" />
+                <TextBlock Style="{StaticResource Unit}" Text="arcmin" />
+            </StackPanel>
+
+            <!-- ===== night preview ===== -->
+            <TextBlock Style="{StaticResource Head}" Text="Night preview (posted by Load Plan)" />
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Post the night preview" />
+                <CheckBox VerticalAlignment="Center" IsChecked="{Binding Settings.SendNightPreview}"
+                          ToolTip="Clear-sky estimate of tonight, posted to Discord with an altitude chart." />
+                <TextBlock Margin="20,0,0,0" VerticalAlignment="Center" Text="with framing" />
+                <CheckBox Margin="6,0,0,0" VerticalAlignment="Center" IsChecked="{Binding Settings.SendFramingPreview}"
+                          ToolTip="Attach a sky-survey cutout of each target with the camera frame drawn at its rotation." />
+            </StackPanel>
+            <TextBlock Opacity="0.7" Margin="0,4,0,2" Text="Overheads for the estimate only (they don't change the sequence):" />
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Slew, solve, center, rotate" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.SlewCenterMinutes}" />
+                <TextBlock Style="{StaticResource Unit}" Text="min per target" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Autofocus run" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.AutofocusMinutes}" />
+                <TextBlock Style="{StaticResource Unit}" Text="min, every" />
+                <TextBox Width="60" VerticalAlignment="Center" Margin="6,0,0,0" Text="{Binding Settings.AutofocusEveryMinutes}"
+                         ToolTip="How often your template's autofocus triggers fire on average. 0 = only at the start of each target." />
+                <TextBlock Style="{StaticResource Unit}" Text="min (0 = only at target start)" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Dither and settle" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.DitherSeconds}" />
+                <TextBlock Style="{StaticResource Unit}" Text="s" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Download and save" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.FrameOverheadSeconds}" />
+                <TextBlock Style="{StaticResource Unit}" Text="s per frame" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Meridian flip" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.MeridianFlipMinutes}" />
+                <TextBlock Style="{StaticResource Unit}" Text="min" />
+            </StackPanel>
+        </StackPanel>
     </DataTemplate>
 
     <!-- SkyShare logo as a sequencer icon (key used in ExportMetadata "Icon").

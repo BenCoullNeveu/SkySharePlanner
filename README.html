@@ -543,6 +543,8 @@ skystack-integration/                 drop-in for the SkyStack repo
 <hr>
 <h2 id="9-setup">9. Setup</h2>
 <h3 id="91-build-and-install-the-plugin-acquisition-pc">9.1 Build and install the plugin (acquisition PC)</h3>
+<p><strong>From a release:</strong> run <code>SkySharePlanner-Setup-&lt;version&gt;.exe</code> from the GitHub Releases page. NINA can stay open. If it is running, the installer puts the update in NINA's plugin staging folder (<code>%LOCALAPPDATA%\NINA\PluginStaging\3.0.0\</code>), the same place NINA's own plugin manager uses. NINA moves it into place the next time it starts, so the open session keeps the current version until then.</p>
+<p><strong>From source:</strong></p>
 <ol>
 <li>Install the .NET SDK that matches your NINA (8 for NINA 3.2, 10 for 3.3 nightlies) and Visual Studio with <em>.NET desktop development</em>.</li>
 <li>Open <code>nina-plugin/SkyShare.Planner.sln</code> and build <strong>Debug</strong>. The post-build step copies the DLL to <code>%LOCALAPPDATA%\NINA\Plugins\3.0.0\SkyShare Planner\</code>.</li>

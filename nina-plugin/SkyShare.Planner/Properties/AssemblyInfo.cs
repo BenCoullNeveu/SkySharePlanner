@@ -32,4 +32,6 @@ using System.Runtime.InteropServices;
 * SkyShare Targets - container that builds one target block per plan entry, cloned from a PROTOTYPE you design in the template.
 * SkyShare: Record Rotation - place inside the target PROTOTYPE after Center & Rotate; remembers the rotator position for flats.
 * SkyShare Flats - container that builds the minimum set of trained flats for the targets that actually ran, grouped by orientation.
-* SkyShare: Session Complete - last item; writes a session manifest (what was captured + what to process) that SkyStack picks up to start its pipeline.")]
+* SkyShare: Session Complete - last item; writes a session manifest (what was captured + what to process) that SkyStack picks up to start its pipeline.
+
+Also: Health Check, Scheduler Preview (Target Scheduler), Darks. Settings that stay the same between sequences, a health check panel and a Restart button are on this options page.")]

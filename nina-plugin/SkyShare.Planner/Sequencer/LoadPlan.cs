@@ -47,112 +47,15 @@ namespace SkyShare.Planner.Sequencer {
 
         private LoadPlan(LoadPlan copyMe) : this(copyMe.profileService, copyMe.rotatorMediator, copyMe.cameraMediator) {
             CopyMetaData(copyMe);
-            PlansDirectory = copyMe.PlansDirectory;
-            RolloverHour = copyMe.RolloverHour;
-            WaitForPlanMinutes = copyMe.WaitForPlanMinutes;
-            MinAltitude = copyMe.MinAltitude;
-            AutofocusAtStart = copyMe.AutofocusAtStart;
-            DitherEvery = copyMe.DitherEvery;
-            CenterDriftThreshold = copyMe.CenterDriftThreshold;
-            SendNightPreview = copyMe.SendNightPreview;
-            SendFramingPreview = copyMe.SendFramingPreview;
-            SlewCenterMinutes = copyMe.SlewCenterMinutes;
-            AutofocusMinutes = copyMe.AutofocusMinutes;
-            AutofocusEveryMinutes = copyMe.AutofocusEveryMinutes;
-            DitherSeconds = copyMe.DitherSeconds;
-            FrameOverheadSeconds = copyMe.FrameOverheadSeconds;
-            MeridianFlipMinutes = copyMe.MeridianFlipMinutes;
         }
 
-        // ---- settings (saved in the template) --------------------------------
+        // ---- settings ------------------------------------------------------------
+        // None in the template: the plans folder, how targets run and the estimate
+        // overheads are on Options > Plugins > SkyShare Planner (SkyShareOptions),
+        // stored in the NINA profile, so every sequence uses the same values.
 
-        private string plansDirectory = @"D:\Users\SkyShare\Dropbox\SkyShare Data\Plans";
-        /// <summary>Dropbox folder the bot / dashboard write *.plan.json into.</summary>
-        [JsonProperty]
-        public string PlansDirectory { get => plansDirectory; set { plansDirectory = value; RaisePropertyChanged(); } }
-
-        private int rolloverHour = 12;
-        /// <summary>Before this local hour we are still in last evening's night.</summary>
-        [JsonProperty]
-        public int RolloverHour { get => rolloverHour; set { rolloverHour = Math.Clamp(value, 0, 23); RaisePropertyChanged(); } }
-
-        private int waitForPlanMinutes = 10;
-        /// <summary>If the plan hasn't synced yet, keep checking this long before failing.</summary>
-        [JsonProperty]
-        public int WaitForPlanMinutes { get => waitForPlanMinutes; set { waitForPlanMinutes = Math.Max(0, value); RaisePropertyChanged(); } }
-
-        // How generated target blocks run (see TargetBuilder).
-
-        private double minAltitude = 20;
-        /// <summary>A target's exposures stop when it drops below this altitude (degrees).</summary>
-        [JsonProperty]
-        public double MinAltitude { get => minAltitude; set { minAltitude = Math.Clamp(value, 0, 90); RaisePropertyChanged(); } }
-
-        private bool autofocusAtStart = true;
-        /// <summary>Run autofocus after centering each target.</summary>
-        [JsonProperty]
-        public bool AutofocusAtStart { get => autofocusAtStart; set { autofocusAtStart = value; RaisePropertyChanged(); } }
-
-        private int ditherEvery = 1;
-        /// <summary>
-        /// Fixed-count targets only: dither after this many frames of each filter (0 = never).
-        /// Cycle targets always use dither-after-0 on their exposures and dither once per cycle.
-        /// </summary>
-        [JsonProperty]
-        public int DitherEvery { get => ditherEvery; set { ditherEvery = Math.Max(0, value); RaisePropertyChanged(); } }
-
-        private double centerDriftThreshold = 5;
-        /// <summary>Center After Drift on every target: re-center beyond this drift (arcminutes).</summary>
-        [JsonProperty]
-        public double CenterDriftThreshold { get => centerDriftThreshold; set { centerDriftThreshold = Math.Clamp(value, 0.1, 600); RaisePropertyChanged(); } }
-
-        // Night preview: a clear-sky estimate of the night, posted with an altitude chart.
-        // These overheads only affect the estimate, not the sequence.
-
-        private bool sendNightPreview = true;
-        [JsonProperty]
-        public bool SendNightPreview { get => sendNightPreview; set { sendNightPreview = value; RaisePropertyChanged(); } }
-
-        private bool sendFramingPreview = true;
-        /// <summary>Attach a sky-survey cutout per target with the camera frame at its rotation.</summary>
-        [JsonProperty]
-        public bool SendFramingPreview { get => sendFramingPreview; set { sendFramingPreview = value; RaisePropertyChanged(); } }
-
-        private double slewCenterMinutes = 3;
-        /// <summary>Slew, plate solve, center and rotate, per target.</summary>
-        [JsonProperty]
-        public double SlewCenterMinutes { get => slewCenterMinutes; set { slewCenterMinutes = Math.Clamp(value, 0, 60); RaisePropertyChanged(); } }
-
-        private double autofocusMinutes = 4;
-        [JsonProperty]
-        public double AutofocusMinutes { get => autofocusMinutes; set { autofocusMinutes = Math.Clamp(value, 0, 60); RaisePropertyChanged(); } }
-
-        private double autofocusEveryMinutes = 60;
-        /// <summary>How often the template's autofocus triggers fire on average (0 = only at target start).</summary>
-        [JsonProperty]
-        public double AutofocusEveryMinutes { get => autofocusEveryMinutes; set { autofocusEveryMinutes = Math.Clamp(value, 0, 1440); RaisePropertyChanged(); } }
-
-        private double ditherSeconds = 30;
-        /// <summary>Dither plus guiding settle.</summary>
-        [JsonProperty]
-        public double DitherSeconds { get => ditherSeconds; set { ditherSeconds = Math.Clamp(value, 0, 600); RaisePropertyChanged(); } }
-
-        private double frameOverheadSeconds = 5;
-        /// <summary>Download and save, per frame.</summary>
-        [JsonProperty]
-        public double FrameOverheadSeconds { get => frameOverheadSeconds; set { frameOverheadSeconds = Math.Clamp(value, 0, 120); RaisePropertyChanged(); } }
-
-        private double meridianFlipMinutes = 5;
-        [JsonProperty]
-        public double MeridianFlipMinutes { get => meridianFlipMinutes; set { meridianFlipMinutes = Math.Clamp(value, 0, 60); RaisePropertyChanged(); } }
-
-        private EstimateSettings EstimateSettings => new(
-            MinAltitude, AutofocusAtStart, DitherEvery,
-            SlewCenterSeconds: SlewCenterMinutes * 60, AutofocusSeconds: AutofocusMinutes * 60,
-            AutofocusEveryMinutes: AutofocusEveryMinutes, DitherSeconds: DitherSeconds,
-            FrameOverheadSeconds: FrameOverheadSeconds, MeridianFlipSeconds: MeridianFlipMinutes * 60);
-
-        private BuildOptions Options => new(MinAltitude, AutofocusAtStart, DitherEvery, CenterDriftThreshold);
+        /// <summary>The plugin-wide settings, for the instruction's view.</summary>
+        public SkyShareOptions Settings => SkyShareOptions.Get(profileService);
 
         // ---- shown in the UI after running ------------------------------------
 
@@ -162,13 +65,16 @@ namespace SkyShare.Planner.Sequencer {
         // ---- run --------------------------------------------------------------
 
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
-            var night = PlanLocator.NightOf(DateTime.Now, RolloverHour);
-            var deadline = DateTime.Now.AddMinutes(WaitForPlanMinutes);
+            var o = Settings;
+            var plansDirectory = o.PlansDirectory;
+            var options = o.BuildOptions;
+            var night = PlanLocator.NightOf(DateTime.Now, o.RolloverHour);
+            var deadline = DateTime.Now.AddMinutes(o.WaitForPlanMinutes);
             string path;
 
             while (true) {
                 try {
-                    path = PlanLocator.Find(PlansDirectory, night);
+                    path = PlanLocator.Find(plansDirectory, night);
                     break;
                 } catch (PlanException e) when (DateTime.Now < deadline && e.Message.StartsWith("No plan")) {
                     progress?.Report(new ApplicationStatus { Status = $"Waiting for plan {PlanLocator.NightKey(night)}…" });
@@ -189,14 +95,14 @@ namespace SkyShare.Planner.Sequencer {
 
             var filters = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Select(f => f.Name).ToList();
             var hasRotator = rotatorMediator.GetInfo().Connected;
-            var filterResolver = FilterResolver.Load(PlansDirectory); // + Plansilter_aliases.json
+            var filterResolver = FilterResolver.Load(plansDirectory); // + <plans folder>/filter_aliases.json
             var issues = PlanValidator.Validate(plan, filters, hasRotator, night, filterResolver);
 
             foreach (var w in issues.Where(i => i.Severity == Severity.Warning))
                 StatusReporter.Warn("plan_warning", w.Message);
             var errors = issues.Where(i => i.Severity == Severity.Error).ToList();
             if (errors.Count > 0) {
-                PlanStore.Set(plan, path, Options); // so the status file lands next to the bad plan
+                PlanStore.Set(plan, path, options); // so the status file lands next to the bad plan
                 Fail("plan_invalid", $"{Path.GetFileName(path)}:\n- " + string.Join("\n- ", errors.Select(e => e.Message)));
             }
 
@@ -204,7 +110,7 @@ namespace SkyShare.Planner.Sequencer {
             // and the session manifest all use the real filter names.
             var renames = filterResolver.ResolveAll(plan, filters);
 
-            PlanStore.Set(plan, path, Options); // status events go next to this plan from here on
+            PlanStore.Set(plan, path, options); // status events go next to this plan from here on
             if (renames.Count > 0)
                 StatusReporter.Report("filters_mapped", "filters matched to the NINA profile: " +
                                       string.Join(", ", renames.Select(r => $"{r.From} → {r.To}")));
@@ -245,8 +151,8 @@ namespace SkyShare.Planner.Sequencer {
                 warnings = issues.Where(i => i.Severity == Severity.Warning).Select(i => i.Message),
             });
 
-            if (SendNightPreview) await NightPreview.Publish(plan, path, profileService, EstimateSettings,
-                                                         SendFramingPreview ? cameraMediator : null);
+            if (o.SendNightPreview) await NightPreview.Publish(plan, path, profileService, o.EstimateSettings,
+                                                           o.SendFramingPreview ? cameraMediator : null);
         }
 
         private static void Fail(string @event, string message) {
@@ -261,8 +167,9 @@ namespace SkyShare.Planner.Sequencer {
 
         public bool Validate() {
             var i = new List<string>();
-            if (string.IsNullOrWhiteSpace(PlansDirectory) || !Directory.Exists(PlansDirectory))
-                i.Add($"Plans folder not found: {PlansDirectory}");
+            var folder = Settings.PlansDirectory;
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                i.Add($"Plans folder not found: {folder} (set it in Options > Plugins > SkyShare Planner)");
             Issues = i;
             return i.Count == 0;
         }
@@ -270,6 +177,6 @@ namespace SkyShare.Planner.Sequencer {
         public override object Clone() => new LoadPlan(this);
 
         public override string ToString() =>
-            $"Category: {Category}, Item: {nameof(LoadPlan)}, Folder: {PlansDirectory}";
+            $"Category: {Category}, Item: {nameof(LoadPlan)}, Folder: {Settings.PlansDirectory}";
     }
 }

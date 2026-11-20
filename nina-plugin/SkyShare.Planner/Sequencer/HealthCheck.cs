@@ -42,19 +42,11 @@ namespace SkyShare.Planner.Sequencer {
 
         private SkyShareHealthCheck(SkyShareHealthCheck copyMe) : this(copyMe.profileService, copyMe.devices) {
             CopyMetaData(copyMe);
-            MinFreeGb = copyMe.MinFreeGb;
-            CheckDropbox = copyMe.CheckDropbox;
             StopOnFailure = copyMe.StopOnFailure;
         }
 
-        private double minFreeGb = 20;
-        /// <summary>Spare disk space wanted on top of tonight's estimate.</summary>
-        [JsonProperty]
-        public double MinFreeGb { get => minFreeGb; set { minFreeGb = Math.Max(0, value); RaisePropertyChanged(); } }
-
-        private bool checkDropbox = true;
-        [JsonProperty]
-        public bool CheckDropbox { get => checkDropbox; set { checkDropbox = value; RaisePropertyChanged(); } }
+        // Spare disk space and the Dropbox check are on Options > Plugins > SkyShare Planner.
+        // Stop on failure stays here: it depends on where the instruction sits in the sequence.
 
         private bool stopOnFailure;
         [JsonProperty]
@@ -65,21 +57,11 @@ namespace SkyShare.Planner.Sequencer {
 
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
             progress?.Report(new ApplicationStatus { Status = "Running health check" });
-            var checks = await HealthChecker.Run(profileService, devices, MinFreeGb, CheckDropbox);
-            var now = DateTime.Now;
-            var summary = HealthReport.Summary(checks);
-            var problems = checks.Where(c => c.Level != HealthLevel.Ok).ToList();
-            LastResult = problems.Count == 0 ? summary
-                : summary + ": " + string.Join("; ", problems.Select(c => $"{HealthReport.Label(c.Level)} {c.Name}: {c.Detail}"));
-
-            var data = new {
-                checks = checks.Select(c => new { name = c.Name, level = HealthReport.Label(c.Level), detail = c.Detail }),
-            };
-            var markdown = HealthReport.Markdown(checks, now, profileService.ActiveProfile.Name);
+            var checks = await HealthChecker.Run(profileService, devices, SkyShareOptions.Get(profileService));
+            LastResult = HealthChecker.OneLine(checks);
+            HealthChecker.Post(checks, profileService.ActiveProfile.Name);
             var worst = HealthReport.Worst(checks);
-            StatusReporter.ReportWithImage("health_check", summary, markdown, null, "", data);
-            if (worst == HealthLevel.Fail)
-                StatusReporter.Warn("health_check_failed", LastResult, null, postToDiscord: false);
+            var problems = checks.Where(c => c.Level != HealthLevel.Ok).ToList();
 
             if (StopOnFailure && worst == HealthLevel.Fail)
                 throw new Exception($"Health check failed: {string.Join("; ", problems.Where(c => c.Level == HealthLevel.Fail).Select(c => $"{c.Name}: {c.Detail}"))}");

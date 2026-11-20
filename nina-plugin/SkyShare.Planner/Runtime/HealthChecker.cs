@@ -26,8 +26,7 @@ namespace SkyShare.Planner.Runtime {
     public static class HealthChecker {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
-        public static async Task<IReadOnlyList<HealthCheck>> Run(IProfileService profileService, HealthDevices d,
-                                                                 double minFreeGb, bool checkDropbox) {
+        public static async Task<IReadOnlyList<HealthCheck>> Run(IProfileService profileService, HealthDevices d, SkyShareOptions o) {
             var p = profileService.ActiveProfile;
             var checks = new List<HealthCheck>();
             void Add(Func<HealthCheck> check, string name) {
@@ -55,9 +54,11 @@ namespace SkyShare.Planner.Runtime {
                     : new HealthCheck("Location", HealthLevel.Ok, $"{a.Latitude:0.00}°, {a.Longitude:0.00}°");
             }, "Location");
 
-            Add(() => DiskSpace(profileService, d, minFreeGb), "Disk space");
+            Add(() => PlansFolder(o.PlansDirectory), "Plans folder");
+            Add(() => TonightsPlan(o.PlansDirectory, o.RolloverHour), "Tonight's plan");
+            Add(() => DiskSpace(profileService, d, o.MinFreeGb, o.EstimateSettings), "Disk space");
 
-            if (checkDropbox)
+            if (o.CheckDropbox)
                 Add(() => Process.GetProcessesByName("Dropbox").Length > 0
                     ? new HealthCheck("Dropbox", HealthLevel.Ok, "running")
                     : new HealthCheck("Dropbox", HealthLevel.Warn, "not running: plans and status files won't sync"), "Dropbox");
@@ -65,6 +66,42 @@ namespace SkyShare.Planner.Runtime {
             checks.Add(await Discord());
             checks.Add(HealthReport.Clock(await Task.Run(ClockOffsetSeconds)));
             return checks;
+        }
+
+        /// <summary>One line for an instruction's view or the options page: the summary, then every problem.</summary>
+        public static string OneLine(IReadOnlyList<HealthCheck> checks) {
+            var summary = HealthReport.Summary(checks);
+            var problems = checks.Where(c => c.Level != HealthLevel.Ok).ToList();
+            return problems.Count == 0 ? summary
+                : summary + ": " + string.Join("; ", problems.Select(c => $"{HealthReport.Label(c.Level)} {c.Name}: {c.Detail}"));
+        }
+
+        /// <summary>Posts the result as one Discord message (and status event); a FAIL is also shown in NINA.</summary>
+        public static void Post(IReadOnlyList<HealthCheck> checks, string profileName) {
+            var data = new {
+                checks = checks.Select(c => new { name = c.Name, level = HealthReport.Label(c.Level), detail = c.Detail }),
+            };
+            StatusReporter.ReportWithImage("health_check", HealthReport.Summary(checks),
+                                           HealthReport.Markdown(checks, DateTime.Now, profileName), null, "", data);
+            if (HealthReport.Worst(checks) == HealthLevel.Fail)
+                StatusReporter.Warn("health_check_failed", OneLine(checks), null, postToDiscord: false);
+        }
+
+        private static HealthCheck PlansFolder(string folder) =>
+            !string.IsNullOrWhiteSpace(folder) && Directory.Exists(folder)
+                ? new HealthCheck("Plans folder", HealthLevel.Ok, folder)
+                : new HealthCheck("Plans folder", HealthLevel.Warn, $"not found: {folder}");
+
+        /// <summary>Not having tonight's plan yet is only a warning: it may still sync, and TS nights have none.</summary>
+        private static HealthCheck TonightsPlan(string folder, int rolloverHour) {
+            var night = PlanLocator.NightOf(DateTime.Now, rolloverHour);
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                return new HealthCheck("Tonight's plan", HealthLevel.Warn, "plans folder not found");
+            try {
+                return new HealthCheck("Tonight's plan", HealthLevel.Ok, Path.GetFileName(PlanLocator.Find(folder, night)));
+            } catch (PlanException e) {
+                return new HealthCheck("Tonight's plan", HealthLevel.Warn, e.Message);
+            }
         }
 
         private static readonly string[] NoDevice = { "", "No_Device", "No_Guider", "None" };
@@ -77,7 +114,7 @@ namespace SkyShare.Planner.Runtime {
                              : new HealthCheck(name, HealthLevel.Fail, $"not connected ({profileId})");
         }
 
-        private static HealthCheck DiskSpace(IProfileService profileService, HealthDevices d, double minFreeGb) {
+        private static HealthCheck DiskSpace(IProfileService profileService, HealthDevices d, double minFreeGb, EstimateSettings settings) {
             var folder = profileService.ActiveProfile.ImageFileSettings.FilePath;
             if (string.IsNullOrWhiteSpace(folder) || Path.GetPathRoot(Path.GetFullPath(folder)) is not { } root)
                 return new HealthCheck("Disk space", HealthLevel.Warn, "no image folder set in the profile");
@@ -88,7 +125,7 @@ namespace SkyShare.Planner.Runtime {
             var cam = d.Camera.GetInfo();
             if (PlanStore.Plan is { } plan && cam.Connected && cam.XSize > 0) {
                 var a = profileService.ActiveProfile.AstrometrySettings;
-                var est = NightEstimator.Estimate(plan, new Site(a.Latitude, a.Longitude), new EstimateSettings(), notBefore: DateTime.Now);
+                var est = NightEstimator.Estimate(plan, new Site(a.Latitude, a.Longitude), settings, notBefore: DateTime.Now);
                 var frames = est.Targets.Sum(t => t.FrameCount) * 1.25;
                 need = (long)(frames * cam.XSize * (long)cam.YSize * 2);
             }

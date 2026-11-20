@@ -141,7 +141,7 @@ Night template (saved once; replaces TemplateSequence.json)
 │
 ├─ Start
 │   ├─ SkyShare: Load Plan            ← NEW, first instruction (Error behaviour: Abort)
-│   │                                    also holds the target settings below
+│   │                                    (settings: Options > Plugins > SkyShare Planner)
 │   └─ STARTUP …                       (unchanged: cool camera, unpark, …)
 │
 ├─ Targets
@@ -224,7 +224,7 @@ And each flats block:
 | `flats.count` | `LoopCondition.Iterations` inside each Trained Flat Exposure |
 | `darks` | see *Darks* below |
 
-Settings on **SkyShare: Load Plan** (saved in the template):
+Target settings are on the plugin's options page (see *Plugin options* below):
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -233,7 +233,7 @@ Settings on **SkyShare: Load Plan** (saved in the template):
 | Dither every … frames | 1 | Fixed-count (by-filter) targets only: `AfterExposures` on each Smart Exposure's dither trigger (0 = never). Cycle targets always get dither after 0 on their Smart Exposures, and a Dither instruction at the end of the cycle dithers on every iteration. |
 | Center drift threshold … arcmin | 5 | *Center After Drift* trigger on every target's container: after a frame, if the plate-solved position is more than this far from the target, NINA re-centers before continuing. |
 
-**Filter names.** Plans store a standard name (`H`, `O`, `S`, `L`, `R`, `G`, `B`). *Load Plan* maps each one to the active profile's own name: exact name, then the same name ignoring case/spaces/dashes and a bandwidth suffix (`Ha 7nm`), then any known alias of the same filter (Ha, H-alpha, OIII, O3, SII, Lum, Luminance, Clear, Red, …). The mapping is posted as a `filters_mapped` status event. Extra spellings go in `Plansilter_aliases.json` (`{"aliases": {"H": ["My Ha"]}}`), which the Discord bot writes and also reads. Code: `SkyShare.Planner.Core/FilterResolver.cs` and the bot's `filter_names.py` (same table and rules).
+**Filter names.** Plans store a standard name (`H`, `O`, `S`, `L`, `R`, `G`, `B`). *Load Plan* maps each one to the active profile's own name: exact name, then the same name ignoring case/spaces/dashes and a bandwidth suffix (`Ha 7nm`), then any known alias of the same filter (Ha, H-alpha, OIII, O3, SII, Lum, Luminance, Clear, Red, …). The mapping is posted as a `filters_mapped` status event. Extra spellings go in `<plans folder>\filter_aliases.json` (`{"aliases": {"H": ["My Ha"]}}`), which the Discord bot writes and also reads. Code: `SkyShare.Planner.Core/FilterResolver.cs` and the bot's `filter_names.py` (same table and rules).
 
 Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the saved template never accumulates old targets.
 
@@ -242,7 +242,7 @@ Generated blocks start with `▶ `. Every run deletes and rebuilds them, so the 
 When *Load Plan* succeeds it also simulates the night on a clear sky and posts the result: when imaging starts, when each target runs, how many frames and how much exposure time it gets, and why it stops. It's posted with an altitude chart showing every target on one plot: **solid** while the target is being imaged, **dotted** when it isn't, vertical lines where the sequence changes target, twilight shading, the *stop below* altitude, and the Moon (pale dash-dot curve, labelled with its illumination). The Scheduler Preview chart below shows the Moon too.
 
 * **Same rules as the sequence.** Targets run in plan order from astronomical dusk (or from now, if the plan is loaded later). The simulation uses each target's `start`/`end`, *stop below* altitude, `max_frames`, `max_hours`, `next_target_altitude`, cycle mode and dawn, all checked between frames. A target that is already below the altitude limit when its turn comes is **skipped**, just as the real altitude condition skips it, and the preview warns about it (`target_not_reached`), so a missing `start` time shows up before the night begins.
-* **Overheads** come from the *Night preview* row on *Load Plan*: slew/center/rotate per target (3 min), autofocus (4 min, at target start if enabled and then every 60 min), dither + settle (30 s), per-frame download (5 s) and meridian flip (5 min). They only affect the estimate. Set them to match your template's triggers.
+* **Overheads** come from the *Night preview* section of the plugin options: slew/center/rotate per target (3 min), autofocus (4 min, at target start if enabled and then every 60 min), dither + settle (30 s), per-frame download (5 s) and meridian flip (5 min). They only affect the estimate. Set them to match your template's triggers.
 * **Where it goes:** a `night_estimate` status event (with the per-target times as data), `<plan>.night.png` next to the plan in Dropbox, and Discord with the chart attached (Discord Alert's webhook, or `SKYSHARE_DISCORD_WEBHOOK`). The bot can post the same thing with `StatusTailer.image_for(ev)` (see `bot_integration.py`). Use one of the two, or the chart is posted twice.
 * **Moon:** each target's line gives how close the Moon gets while it is imaged (only while the Moon is up) and how lit it is, for example "Moon 25° away, 80% lit (close)". *Close* means over half lit and within 40°. "Moon down" means it stays below the horizon.
 * **Framing preview** (*with framing*, on by default): a second image in the same Discord message, with one sky-survey cutout per target (up to 9). Each shows the camera's frame at the planned rotation, north up and east left, so you can see what the frame should contain. The frame size comes from the profile's focal length and pixel size, and the sensor size from the camera (or the framing assistant settings if it isn't connected). Images come from CDS (colour DSS2), falling back to its mirror and then NASA SkyView (DSS2 red). Only target coordinates are sent, and cutouts are cached in `%LOCALAPPDATA%\SkyShare Planner\survey-cache`.
@@ -273,7 +273,24 @@ When *Load Plan* succeeds it also simulates the night on a clear sky and posts t
 | Discord | the webhook URL is rejected (deleted or wrong) | no webhook set, or Discord can't be reached |
 | Clock (against `time.windows.com`) | more than 30 s off | more than 2 s off, or no time server reachable |
 
-By default it only reports. With *Stop on failure* the instruction fails when any check is FAIL, so the sequence's error behaviour decides what happens next. Code: `Runtime/HealthChecker.cs` (checks), `Core/HealthReport.cs` (levels and text; unit-tested).
+Two more checks, both WARN only (a Target Scheduler night has no plan): the plans folder exists, and tonight's plan has synced.
+
+*Spare disk space* and the Dropbox check are set on the plugin options page; the same checks can be run from there at any time. By default the instruction only reports. With *Stop on failure* (on the instruction) it fails when any check is FAIL, so the sequence's error behaviour decides what happens next. Code: `Runtime/HealthChecker.cs` (checks), `Core/HealthReport.cs` (levels and text; unit-tested).
+
+### Plugin options
+
+Settings that stay the same from one sequence to the next are on NINA's **Options > Plugins > SkyShare Planner** page, not on the instructions. They are saved in the active NINA profile (a second rig profile can have its own values), and instructions read them when they run, so a change needs no sequence edit.
+
+| Section | Settings |
+|---|---|
+| Health check | *Run checks* / *Run and post to Discord* buttons with the results; spare disk space; check Dropbox |
+| Plans | plans folder; hour the night rolls over (12); wait for the plan to sync (10 min) |
+| Targets | stop below altitude; autofocus at start; dither every N frames; re-center drift threshold |
+| Night preview | post the preview; with framing; the estimate overheads |
+
+Only choices that depend on the sequence stay on an instruction: *Stop on failure* on Health Check, and the save folder and framing option on Scheduler Preview.
+
+**Updates.** The page shows the running version and a *Restart N.I.N.A.* button. When a newer version is installed while NINA is running (see *Setup*), NINA shows a notification and the page shows an *Update ready* banner; restarting from there loads it. The button refuses while a sequence is running.
 
 ### Darks
 
@@ -526,6 +543,10 @@ The plugin compiles the Core files in directly, so only one DLL needs deploying,
 
 ### 9.1 Build and install the plugin (acquisition PC)
 
+**From a release:** run `SkySharePlanner-Setup-<version>.exe` from the GitHub Releases page. NINA can stay open. If it is running, the installer puts the update in NINA's plugin staging folder (`%LOCALAPPDATA%\NINA\PluginStaging\3.0.0\`), the same place NINA's own plugin manager uses. NINA moves it into place the next time it starts, so the open session keeps the current version until then. The plugin's options page shows an *Update ready* banner with a *Restart N.I.N.A.* button.
+
+**From source:**
+
 1. Install the .NET SDK that matches your NINA (8 for NINA 3.2, 10 for 3.3 nightlies) and Visual Studio with *.NET desktop development*.
 2. Open `nina-plugin/SkyShare.Planner.sln` and build **Debug**. The post-build step copies the DLL to `%LOCALAPPDATA%\NINA\Plugins\3.0.0\SkyShare Planner\`.
 3. Restart NINA. A **SkyShare** category appears in the sequencer's instruction list.
@@ -538,8 +559,8 @@ In the Flat Wizard, train every filter + gain + binning combination clients can 
 ### 9.3 Convert the template
 
 1. Open your current `TemplateSequence.json` in NINA.
-2. In **Start**, add **SkyShare: Load Plan** as the first item. Set the plans folder to `…\Dropbox\SkyShare Data\Plans` and the error behaviour to **Abort**.
-   On the same item, check the target settings: *stop below* altitude (your old template used 20°), *Autofocus at start*, *Dither every* N frames (fixed-count targets) and the *Center drift threshold* (5′).
+2. In **Start**, add **SkyShare: Load Plan** as the first item and set its error behaviour to **Abort**.
+   In **Options > Plugins > SkyShare Planner**, set the plans folder to `…\Dropbox\SkyShare Data\Plans` and check the target settings: *stop below* altitude (your old template used 20°), *Autofocus at start*, *Dither every* N frames (fixed-count targets) and the re-center drift threshold (5′).
 3. In **When Safe**, delete `TEMPLATE DSO` and add **SkyShare Targets** in its place. Leave it empty. Keep the triggers on *When Safe*; they apply to the generated targets.
 4. In **FLATS**, delete the old `FLAT INSTRUCTIONS` container and add **SkyShare Flats** in its place. Leave it empty.
    Optional: add **SkyShare Darks** in the End area, after your cover/park steps (see *Darks* in §3). Leave it empty.
@@ -550,7 +571,7 @@ In the Flat Wizard, train every filter + gain + binning combination clients can 
 ### 9.4 Make the Dropbox folder reliable
 
 * Mark `SkyShare Data\Plans` as **Available offline** on the acquisition PC. Otherwise Dropbox can leave online-only placeholders that NINA can't read.
-* `write_plan()` writes a hidden `.tmp` file and renames it, so NINA never reads a half-synced file. *Load Plan* also waits up to *Wait for sync* minutes (default 10) for the file to appear.
+* `write_plan()` writes a hidden `.tmp` file and renames it, so NINA never reads a half-synced file. *Load Plan* also waits up to the plugin options' *wait for the plan to sync* time (default 10 min) for the file to appear.
 
 ### 9.5 Wire up the Discord bot
 
