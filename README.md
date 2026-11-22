@@ -290,7 +290,7 @@ Settings that stay the same from one sequence to the next are on NINA's **Option
 
 Only choices that depend on the sequence stay on an instruction: *Stop on failure* on Health Check, and the save folder and framing option on Scheduler Preview.
 
-**Updates.** The page shows the running version and a *Restart N.I.N.A.* button. When a newer version is installed while NINA is running (see *Setup*), NINA shows a notification and the page shows an *Update ready* banner; restarting from there loads it. The button refuses while a sequence is running.
+**Updates.** The page shows the running version and a *Restart N.I.N.A.* button. When a newer version is installed while NINA is running (see *Setup*), NINA shows a notification and the page shows an *Update ready* banner; restarting from there loads it. The button refuses while a sequence is running. The page also checks GitHub for a newer release about a minute after NINA starts and every 12 hours (*Check for updates*, on by default; the only request is an anonymous call to the GitHub API). When there is one, NINA shows a notification and the page shows *Update available* with *Install update*, which downloads that release's installer and runs it silently, so it is staged for the restart. Nothing is installed without that click.
 
 ### Darks
 
@@ -397,17 +397,17 @@ When the night ends, **SkyShare: Session Complete** writes `<night>_<client>.ses
   "schema_version": 1, "kind": "skyshare_session",
   "night": "2026-11-07", "client": "Jane Doe", "outcome": "partial",
   "targets": [
-    { "name": "NGC 7635 Jane Doe", "session": "2026-11-07", "ran": true,
+    { "name": "NGC 7635 for Jane Doe", "session": "2026-11-07", "ran": true,
       "lights": { "H": 20, "O": 10 }, "lights_total": 30, "planned_total": 30 },
-    { "name": "M 31 Jane Doe", "session": "2026-11-07", "ran": true,
+    { "name": "M 31 for Jane Doe", "session": "2026-11-07", "ran": true,
       "lights": { "L": 41 }, "lights_total": 41, "planned_total": 120 }
   ],
   "flats": { "frames_total": 150, "sets": [ … ], "skipped": [] },
   "darks": { "frames_total": 0, "sets": [] },
   "actions": [
-    { "type": "skystack_run", "target": "NGC 7635 Jane Doe", "sessions": ["2026-11-07"],
+    { "type": "skystack_run", "target": "NGC 7635 for Jane Doe", "sessions": ["2026-11-07"],
       "triage": "send", "postprocess": null, "export": true },
-    { "type": "skystack_run", "target": "M 31 Jane Doe", "sessions": ["2026-11-07"],
+    { "type": "skystack_run", "target": "M 31 for Jane Doe", "sessions": ["2026-11-07"],
       "triage": "send", "postprocess": null, "export": true }
   ]
 }
@@ -442,7 +442,7 @@ flowchart TD
 * Check without changing anything: `python -m skystack.session_watch --dry-run`.
 
 **Folder names must line up.** SkyStack looks for `LIGHT/<target>/<night>/`, so NINA's image file pattern has to produce that:
-* `$$TARGETNAME$$` gives the target folder. The plugin sets it to the plan's target name, and the bot appends the client name as before (`M 31 Jane Doe`).
+* `$$TARGETNAME$$` gives the target folder. The plugin sets it to the plan's target name, and the bot names each target `<target> for <client>` (`M 31 for Jane Doe`), or just the target when there is no client, so folders sort by target and client.
 * `$$DATEMINUS12$$` gives the session folder. It's the date the night started, the same as the plan's `night`.
 * For example: `$$IMAGETYPE$$\$$TARGETNAME$$\$$DATEMINUS12$$\$$IMAGETYPE$$\$$FILTER$$\…`. Keep the rest of your current pattern.
 

@@ -154,6 +154,31 @@
                 </DockPanel>
             </Border>
 
+            <!-- Shown when GitHub has a newer release that isn't installed yet -->
+            <Border Margin="0,0,0,10" Padding="10,6" CornerRadius="3" BorderThickness="1"
+                    BorderBrush="#64B5F6" Background="#3364B5F6">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Updates.IsAvailable}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Margin="12,0,0,0" Padding="12,3" Command="{Binding OpenReleaseCommand}" Content="Release notes" />
+                        <Button Margin="8,0,0,0" Padding="12,3" Command="{Binding InstallUpdateCommand}" Content="Install update" />
+                    </StackPanel>
+                    <StackPanel Orientation="Vertical">
+                        <TextBlock FontWeight="SemiBold" Text="Update available" />
+                        <TextBlock Margin="0,2,0,0" TextWrapping="Wrap" Text="{Binding Updates.Message}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                 <TextBlock Opacity="0.7" VerticalAlignment="Center">
                     <Run Text="SkyShare Planner" />
@@ -161,6 +186,10 @@
                 </TextBlock>
                 <Button Margin="12,0,0,0" Padding="10,2" Command="{Binding RestartCommand}" Content="Restart N.I.N.A."
                         ToolTip="Restart N.I.N.A., for example after installing an update. Not available while a sequence runs." />
+                <Button Margin="8,0,0,0" Padding="10,2" Command="{Binding CheckUpdatesCommand}" Content="Check for updates" />
+                <CheckBox Margin="12,0,0,0" VerticalAlignment="Center" IsChecked="{Binding Settings.CheckForUpdates}"
+                          Content="automatically" ToolTip="Look on GitHub after N.I.N.A. starts and every 12 hours. Nothing is installed without a click." />
+                <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Opacity="0.7" Text="{Binding Updates.Status}" />
             </StackPanel>
             <TextBlock Opacity="0.7" TextWrapping="Wrap"
                        Text="These apply to every sequence and are saved in the active NINA profile. Instructions read them when they run, so a change here needs no sequence edit." />

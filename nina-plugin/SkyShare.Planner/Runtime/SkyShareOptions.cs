@@ -89,6 +89,11 @@ namespace SkyShare.Planner.Runtime {
         public double FrameOverheadSeconds { get => D(5); set => Set(Math.Clamp(value, 0, 120)); }
         public double MeridianFlipMinutes { get => D(5); set => Set(Math.Clamp(value, 0, 60)); }
 
+        // ---- updates ----------------------------------------------------------------
+
+        /// <summary>Look for a newer release on GitHub after NINA starts and every 12 hours (never installs by itself).</summary>
+        public bool CheckForUpdates { get => B(true); set => Set(value); }
+
         // ---- health check ---------------------------------------------------------
 
         /// <summary>Spare disk space wanted on top of tonight's estimate.</summary>

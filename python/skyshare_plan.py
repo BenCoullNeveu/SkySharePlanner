@@ -352,8 +352,9 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
     and the new multi-target shape:
         {"date": ..., "user": ..., "targets": [ {name, ra, dec, rot, start, end, exposures}, ... ]}
 
-    Like the old bot, the client name is appended to each target name ("M 31 Jane Doe"):
-    that name becomes the NINA target name and therefore SkyStack's LIGHT/<target>/ folder.
+    With a client, each target is named "<target> for <client>" ("M 31 for Jane Doe"); without
+    one, just the target ("M 31"). That name becomes the NINA target name and therefore the
+    image folders and SkyStack's LIGHT/<target>/ folder, so " for " makes them easy to sort.
     """
     raw_targets = seq.get("targets") or [seq]
     user = seq.get("user")
@@ -364,9 +365,7 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
             exp, count = (v[0], v[1]) if isinstance(v, (list, tuple)) else (v["exposure"], v["count"])
             exps.append(Exposure(filter=str(filt), exposure=float(exp), count=int(count),
                                  gain=int(gain_rule(str(filt)))))
-        name = str(t["name"]).strip()
-        if user and not name.endswith(f" {user}"):
-            name = f"{name} {user}"
+        name = target_name(str(t["name"]), user)
         targets.append(Target(
             name=name, ra=str(t["ra"]), dec=str(t["dec"]),
             rotation=float(t.get("rot", t.get("rotation", 0)) or 0) % 360,
@@ -386,6 +385,22 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
         created_by=created_by,
         created_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
+
+
+def target_name(name: str, client: str | None) -> str:
+    """'M 31' + 'Jane Doe' -> 'M 31 for Jane Doe'; no client -> 'M 31'.
+
+    Idempotent, and also fixes the old style ('M 31 Jane Doe') so re-saved plans match.
+    """
+    name = " ".join(name.split())
+    client = " ".join((client or "").split())
+    if not client:
+        return name
+    for suffix in (f" for {client}", f" {client}"):
+        if name.lower().endswith(suffix.lower()):
+            name = name[: -len(suffix)].rstrip()
+            break
+    return f"{name} for {client}"
 
 
 def _normalise_date(date: str | None) -> str:

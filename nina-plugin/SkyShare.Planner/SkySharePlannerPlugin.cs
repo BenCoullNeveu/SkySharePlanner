@@ -44,6 +44,10 @@ namespace SkyShare.Planner {
             this.profileService = profileService;
             this.sequenceMediator = sequenceMediator;
             RestartCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(Restart);
+            Updates = new UpdateChecker(() => Settings.CheckForUpdates, Update);
+            CheckUpdatesCommand = new AsyncRelayCommand(() => Updates.Check(automatic: false));
+            InstallUpdateCommand = new AsyncRelayCommand(() => Updates.Install());
+            OpenReleaseCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(() => Updates.OpenReleasePage());
             devices = new HealthDevices(camera, mount, guider, focuser, filterWheel, rotator);
             RunHealthCheckCommand = new AsyncRelayCommand(() => RunHealthCheck(post: false));
             PostHealthCheckCommand = new AsyncRelayCommand(() => RunHealthCheck(post: true));
@@ -82,7 +86,14 @@ namespace SkyShare.Planner {
             }
         }
 
+        /// <summary>Newer release on GitHub: "Update available" banner with Install.</summary>
+        public UpdateChecker Updates { get; }
+        public IAsyncRelayCommand CheckUpdatesCommand { get; }
+        public IAsyncRelayCommand InstallUpdateCommand { get; }
+        public IRelayCommand OpenReleaseCommand { get; }
+
         public override Task Teardown() {
+            Updates.Dispose();
             Update.Dispose();
             return base.Teardown();
         }

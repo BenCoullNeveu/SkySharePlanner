@@ -6,7 +6,7 @@
   "created_utc": "2026-11-08T21:00:00Z",
   "targets": [
     {
-      "name": "M 33 John Smith",
+      "name": "M 33 for John Smith",
       "ra": "01:33:50.9",
       "dec": "+30:39:36",
       "rotation": 0,
@@ -23,7 +23,7 @@
       ]
     },
     {
-      "name": "M 42 John Smith",
+      "name": "M 42 for John Smith",
       "ra": "05:35:17.3",
       "dec": "-05:23:28",
       "rotation": 90,

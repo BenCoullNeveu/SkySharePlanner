@@ -174,7 +174,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 80,
-          "description": "Also the SkyStack target folder (LIGHT/<name>/). The bot appends the client name, e.g. 'M 31 Jane Doe'."
+          "description": "Also the SkyStack target folder (LIGHT/<name>/). The bot names it '<target> for <client>', e.g. 'M 31 for Jane Doe' (just the target when there is no client)."
         },
         "ra": {
           "description": "J2000, HH:MM:SS(.s)",

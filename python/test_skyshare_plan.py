@@ -29,7 +29,7 @@ def test_from_bot_wizard_shape():
     assert plan.filename == "2026-12-31_JaneDoe.plan.json"
     gains = {e.filter: e.gain for e in plan.targets[0].exposures}
     assert gains == {"L": 0, "H": 100}
-    assert plan.targets[0].name == "Some gases in space Jane Doe"   # SkyStack folder name, as before
+    assert plan.targets[0].name == "Some gases in space for Jane Doe"   # NINA target and SkyStack folder name
     assert sp.validate(plan) == []
 
 
@@ -125,7 +125,7 @@ def test_write_is_atomic_and_one_per_night(tmp_path):
     plan = sp.plan_from_wizard(BOT_SEQ)
     path = sp.write_plan(plan, tmp_path)
     assert path.exists() and not list(tmp_path.glob("*.tmp"))
-    assert sp.load_plan(path).targets[0].name == "Some gases in space Jane Doe"
+    assert sp.load_plan(path).targets[0].name == "Some gases in space for Jane Doe"
 
     other = sp.plan_from_wizard({**BOT_SEQ, "user": "Someone Else"})
     with pytest.raises(sp.PlanError, match="already exists"):
@@ -169,3 +169,12 @@ def test_examples_match_schema_and_validator(path):
         assert problems and schema_errors
     else:
         assert problems == [] and schema_errors == []
+
+
+def test_target_name_adds_for_client():
+    assert sp.target_name("M 31", "Jane Doe") == "M 31 for Jane Doe"
+    assert sp.target_name("M 31", None) == "M 31"
+    assert sp.target_name("  M 31 ", "  ") == "M 31"
+    # idempotent, and the old "<target> <client>" style is converted
+    assert sp.target_name("M 31 for Jane Doe", "Jane Doe") == "M 31 for Jane Doe"
+    assert sp.target_name("M 31 Jane Doe", "Jane Doe") == "M 31 for Jane Doe"

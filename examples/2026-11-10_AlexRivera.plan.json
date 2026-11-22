@@ -6,7 +6,7 @@
   "created_utc": "2026-11-08T21:00:00Z",
   "targets": [
     {
-      "name": "NGC 7000 Alex Rivera",
+      "name": "NGC 7000 for Alex Rivera",
       "ra": "20:59:17.1",
       "dec": "+44:31:44",
       "rotation": 270,
@@ -18,7 +18,7 @@
       ]
     },
     {
-      "name": "IC 1805 Alex Rivera",
+      "name": "IC 1805 for Alex Rivera",
       "ra": "02:33:22.0",
       "dec": "+61:26:36",
       "rotation": 45,
@@ -32,7 +32,7 @@
       ]
     },
     {
-      "name": "M 45 Alex Rivera",
+      "name": "M 45 for Alex Rivera",
       "ra": "03:47:24.0",
       "dec": "+24:07:00",
       "rotation": 0,
