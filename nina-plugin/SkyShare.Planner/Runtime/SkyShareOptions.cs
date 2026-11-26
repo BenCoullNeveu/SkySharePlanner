@@ -89,6 +89,11 @@ namespace SkyShare.Planner.Runtime {
         public double FrameOverheadSeconds { get => D(5); set => Set(Math.Clamp(value, 0, 120)); }
         public double MeridianFlipMinutes { get => D(5); set => Set(Math.Clamp(value, 0, 60)); }
 
+        // ---- camera -------------------------------------------------------------------
+
+        /// <summary>Set Temperature's set point when the plan has no camera_temperature (°C).</summary>
+        public double DefaultCameraTemperature { get => D(0); set => Set(Math.Clamp(value, -60, 40)); }
+
         // ---- calibration nights (SkyShareAstro Session) --------------------------------
 
         /// <summary>Name of the switch port that powers the flat panel ("" = no switch: the panel is always powered).</summary>

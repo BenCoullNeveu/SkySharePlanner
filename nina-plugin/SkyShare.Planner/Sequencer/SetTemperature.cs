@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using NINA.Core.Model;
 using NINA.Equipment.Interfaces.Mediator;
+using NINA.Profile.Interfaces;
 using NINA.Sequencer.SequenceItem;
 using NINA.Sequencer.Validations;
 using SkyShare.Planner.Runtime;
@@ -16,34 +17,33 @@ namespace SkyShare.Planner.Sequencer {
     /// Turns the camera cooler on and brings the sensor to a set point, optionally ramping
     /// over a few minutes, and reports the result. The set point is the loaded plan's
     /// "camera_temperature" when it has one (and "Use the plan's temperature" is on),
-    /// otherwise the instruction's fallback value (default 0 °C). A set point that
+    /// otherwise the default camera temperature from the plugin options (0 °C unless changed). A set point that
     /// isn't reached is a warning and the sequence continues.
     /// </summary>
     [ExportMetadata("Name", "SkyShare: Set Temperature")]
-    [ExportMetadata("Description", "Cools the camera to the plan's camera_temperature, or this instruction's set point (default 0 °C), and reports the sensor temperature.")]
+    [ExportMetadata("Description", "Cools the camera to the plan's camera_temperature, or the default temperature from the plugin options (0 °C unless changed), and reports the sensor temperature.")]
     [ExportMetadata("Icon", "SkyShareLogoSVG")]
     [ExportMetadata("Category", "SkyShare")]
     [Export(typeof(ISequenceItem))]
     [JsonObject(MemberSerialization.OptIn)]
     public class SetTemperature : SequenceItem, IValidatable {
         private readonly ICameraMediator camera;
+        private readonly IProfileService profileService;
 
         [ImportingConstructor]
-        public SetTemperature(ICameraMediator camera) {
+        public SetTemperature(ICameraMediator camera, IProfileService profileService) {
             this.camera = camera;
+            this.profileService = profileService;
         }
 
-        private SetTemperature(SetTemperature copyMe) : this(copyMe.camera) {
+        private SetTemperature(SetTemperature copyMe) : this(copyMe.camera, copyMe.profileService) {
             CopyMetaData(copyMe);
-            Temperature = copyMe.Temperature;
             UsePlanTemperature = copyMe.UsePlanTemperature;
             RampMinutes = copyMe.RampMinutes;
         }
 
-        private double temperature;
-        /// <summary>Set point in °C when the plan gives none (or "Use the plan's temperature" is off).</summary>
-        [JsonProperty]
-        public double Temperature { get => temperature; set { temperature = Math.Clamp(value, -60, 40); RaisePropertyChanged(); RefreshPlanInfo(); } }
+        /// <summary>Set point in °C when the plan gives none (or "Use the plan's temperature" is off): from the plugin options.</summary>
+        public double Fallback => SkyShareOptions.Get(profileService).DefaultCameraTemperature;
 
         private double rampMinutes;
         /// <summary>Minimum duration of the cool-down (0 = straight to the set point).</summary>
@@ -66,17 +66,18 @@ namespace SkyShare.Planner.Sequencer {
         private void RefreshPlanInfo() {
             var plan = PlanStore.Plan;
             var (setPoint, _) = Resolve();
-            PlanInfo = plan is null ? $"No plan loaded: uses the fallback, {setPoint:0.#} °C"
-                : plan.CameraTemperature is not { } t ? $"Plan sets no temperature: uses the fallback, {setPoint:0.#} °C"
+            PlanInfo = plan is null ? $"No plan loaded: uses the default, {setPoint:0.#} °C"
+                : plan.CameraTemperature is not { } t ? $"Plan sets no temperature: uses the default, {setPoint:0.#} °C"
                 : UsePlanTemperature ? $"Plan temperature: {t:0.#} °C"
-                : $"Plan temperature: {t:0.#} °C (not used: fallback {setPoint:0.#} °C)";
+                : $"Plan temperature: {t:0.#} °C (not used: default {setPoint:0.#} °C)";
+            RaisePropertyChanged(nameof(Fallback));
         }
 
         /// <summary>Tonight's set point and where it came from.</summary>
         public (double SetPoint, string Source) Resolve() =>
             UsePlanTemperature && PlanStore.Plan?.CameraTemperature is { } t
                 ? (t, "from the plan")
-                : (Temperature, PlanStore.Plan is null || !UsePlanTemperature ? "fallback" : "plan has none, fallback");
+                : (Fallback, PlanStore.Plan is null || !UsePlanTemperature ? "default" : "plan has none, default");
 
         public override async Task Execute(IProgress<ApplicationStatus> progress, CancellationToken token) {
             RefreshPlanInfo();
@@ -113,6 +114,6 @@ namespace SkyShare.Planner.Sequencer {
         public override object Clone() => new SetTemperature(this);
 
         public override string ToString() =>
-            $"Category: {Category}, Item: {nameof(SetTemperature)}, Temperature: {Temperature}, From plan: {UsePlanTemperature}, Min duration: {RampMinutes} min";
+            $"Category: {Category}, Item: {nameof(SetTemperature)}, Default: {Fallback}, From plan: {UsePlanTemperature}, Min duration: {RampMinutes} min";
     }
 }

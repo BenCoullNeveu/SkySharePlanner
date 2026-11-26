@@ -280,7 +280,7 @@ Two more checks, both WARN only (a Target Scheduler night has no plan): the plan
 
 ### Set Temperature
 
-*SkyShare: Set Temperature* turns the camera cooler on and brings the sensor to a set point. The set point is the plan's optional `camera_temperature` (°C) when it has one, otherwise the instruction's *Fallback*, **0 °C by default**. The instruction shows the loaded plan's temperature and whether it is used. Untick *Use the plan's temperature* to always use the fallback. *Load Plan* warns when a plan's `camera_temperature` and `darks.temperature` differ, since the darks then won't match the lights. *Min Duration* makes the cool-down take at least that many minutes (0 = straight to the set point). The result goes to the NINA log and status file; if the set point isn't reached, it is a warning (also posted to Discord) and the sequence continues. Before the sequence starts, the instruction flags a camera that isn't connected or can't set its temperature. Put it in **Start**, before Health Check, so the cooling check there sees the cooled camera.
+*SkyShare: Set Temperature* turns the camera cooler on and brings the sensor to a set point. The set point is the plan's optional `camera_temperature` (°C) when it has one, otherwise the *Default camera temperature* from the plugin options (**0 °C** unless you change it; saved in the NINA profile). The instruction shows the loaded plan's temperature, the default, and which one it will use. Untick *Use the plan's temperature* to always use the default. *Load Plan* warns when a plan's `camera_temperature` and `darks.temperature` differ, since the darks then won't match the lights. *Min Duration* makes the cool-down take at least that many minutes (0 = straight to the set point). The result goes to the NINA log and status file; if the set point isn't reached, it is a warning (also posted to Discord) and the sequence continues. Before the sequence starts, the instruction flags a camera that isn't connected or can't set its temperature. Put it in **Start**, before Health Check, so the cooling check there sees the cooled camera.
 
 ### Plugin options
 
@@ -292,6 +292,7 @@ Settings that stay the same from one sequence to the next are on NINA's **Option
 | Plans | plans folder; hour the night rolls over (12); wait for the plan to sync (10 min) |
 | Targets | stop below altitude; autofocus at start; dither every N frames; re-center drift threshold |
 | Night preview | post the preview; with framing; the estimate overheads |
+| Camera | default camera temperature for Set Temperature when the plan sets none (0 °C) |
 | Calibration nights | switch port powering the flat panel; connect flat panel before calibration; disconnect flat panel once closed |
 
 Only choices that depend on the sequence stay on an instruction: *Stop on failure* on Health Check, and the save folder and framing option on Scheduler Preview.

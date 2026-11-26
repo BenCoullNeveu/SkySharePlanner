@@ -91,11 +91,10 @@
                 <StackPanel Orientation="Vertical">
                     <StackPanel Orientation="Horizontal">
                         <CheckBox VerticalAlignment="Center" Content="Use the plan's temperature" IsChecked="{Binding UsePlanTemperature}"
-                                  ToolTip="Use camera_temperature from tonight's plan when it has one; otherwise the fallback." />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Fallback" />
-                        <TextBox MinWidth="40" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding Temperature}"
-                                 ToolTip="Set point when the plan gives none (default 0 °C)." />
-                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="&#176;C" />
+                                  ToolTip="Use camera_temperature from tonight's plan when it has one; otherwise the default." />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Default" />
+                        <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding Fallback, StringFormat={}{0:0.#} &#176;C}"
+                                   ToolTip="Set point when the plan gives none. Change it in Options &gt; Plugins &gt; SkyShare Planner." />
                         <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Min Duration" />
                         <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding RampMinutes}"
                                  ToolTip="Take at least this long to reach the set point. 0 = straight to the set point." />
@@ -272,6 +271,15 @@
                 <TextBlock Style="{StaticResource Lbl}" Text="Wait for the plan to sync" />
                 <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.WaitForPlanMinutes}" />
                 <TextBlock Style="{StaticResource Unit}" Text="min, then fail" />
+            </StackPanel>
+
+            <!-- ===== camera ===== -->
+            <TextBlock Style="{StaticResource Head}" Text="Camera" />
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Default camera temperature" />
+                <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.DefaultCameraTemperature}"
+                         ToolTip="Set Temperature uses this when tonight's plan has no camera_temperature (or 'Use the plan's temperature' is off)." />
+                <TextBlock Style="{StaticResource Unit}" Text="&#176;C, when the plan sets none" />
             </StackPanel>
 
             <!-- ===== calibration nights ===== -->
