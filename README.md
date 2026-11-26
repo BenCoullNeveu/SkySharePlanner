@@ -146,11 +146,12 @@ Night template (saved once; replaces TemplateSequence.json)
 │
 ├─ Targets
 │   └─ IMAGING INSTRUCTIONS
-│       ├─ When Safe                   (unchanged: safety condition + your triggers)
-│       │   └─ SkyShare Targets        ← NEW, replaces "TEMPLATE DSO"; leave empty
-│       │       ├─ ▶ NGC 7635          (generated at run time, see below)
-│       │       └─ ▶ M 31
-│       └─ When Unsafe …
+│       └─ SkyShareAstro Session       ← NEW, holds the body of the night (see below)
+│           ├─ When Safe               (unchanged: safety condition + your triggers)
+│           │   └─ SkyShare Targets    ← NEW, replaces "TEMPLATE DSO"; leave empty
+│           │       ├─ ▶ NGC 7635      (generated at run time, see below)
+│           │       └─ ▶ M 31
+│           └─ When Unsafe …
 │
 └─ End
     └─ END OF SEQUENCE
@@ -277,6 +278,10 @@ Two more checks, both WARN only (a Target Scheduler night has no plan): the plan
 
 *Spare disk space* and the Dropbox check are set on the plugin options page; the same checks can be run from there at any time. By default the instruction only reports. With *Stop on failure* (on the instruction) it fails when any check is FAIL, so the sequence's error behaviour decides what happens next. Code: `Runtime/HealthChecker.cs` (checks), `Core/HealthReport.cs` (levels and text; unit-tested).
 
+### Set Temperature
+
+*SkyShare: Set Temperature* turns the camera cooler on and brings the sensor to a set point. The set point is the plan's optional `camera_temperature` (°C) when it has one, otherwise the instruction's *Fallback*, **0 °C by default**. The instruction shows the loaded plan's temperature and whether it is used. Untick *Use the plan's temperature* to always use the fallback. *Load Plan* warns when a plan's `camera_temperature` and `darks.temperature` differ, since the darks then won't match the lights. *Min Duration* makes the cool-down take at least that many minutes (0 = straight to the set point). The result goes to the NINA log and status file; if the set point isn't reached, it is a warning (also posted to Discord) and the sequence continues. Before the sequence starts, the instruction flags a camera that isn't connected or can't set its temperature. Put it in **Start**, before Health Check, so the cooling check there sees the cooled camera.
+
 ### Plugin options
 
 Settings that stay the same from one sequence to the next are on NINA's **Options > Plugins > SkyShare Planner** page, not on the instructions. They are saved in the active NINA profile (a second rig profile can have its own values), and instructions read them when they run, so a change needs no sequence edit.
@@ -287,6 +292,7 @@ Settings that stay the same from one sequence to the next are on NINA's **Option
 | Plans | plans folder; hour the night rolls over (12); wait for the plan to sync (10 min) |
 | Targets | stop below altitude; autofocus at start; dither every N frames; re-center drift threshold |
 | Night preview | post the preview; with framing; the estimate overheads |
+| Calibration nights | switch port powering the flat panel; connect flat panel before calibration; disconnect flat panel once closed |
 
 Only choices that depend on the sequence stay on an instruction: *Stop on failure* on Health Check, and the save folder and framing option on Scheduler Preview.
 
@@ -331,7 +337,9 @@ SkyShare Darks
 
 In the example, the plugin takes 20 × 300 s and 30 × 60 s first. It then alternates 1 × 600 s and 2 × 120 s until astronomical dawn. If dawn is reached during the fixed sets, the rounds are skipped.
 
-* **Calibration-only nights:** a plan with `"targets": []` and a `darks` section is valid. *SkyShare Targets* then has nothing to do. Because the template's own conditions around it (*When Safe*, loops, waits) still run, a template that waits for safe conditions or for dawn there will delay the darks. If that's a problem, keep a small calibration template: Load Plan, STARTUP, cover/park, SkyShare Darks, Session Complete.
+* **Calibration-only nights:** a plan with `"targets": []` and a `darks` section is valid. Put *When Safe* and *When Unsafe* inside a **SkyShareAstro Session** container. On an imaging night it runs them as they are. On a calibration night (no targets), *Load Plan* takes them out of the session container and puts the plan's darks there instead (shown as `▶` blocks), so no safety or dawn wait holds the darks up; any *SkyShare Darks* container elsewhere then skips, so darks are taken once. Loading an imaging plan later in the same NINA session puts *When Safe* and *When Unsafe* back.
+  * The darks run where the session container sits, before the *End* steps. Before them the session container covers the scope with the flat panel, which is normally off and disconnected at that point. Set this up in the plugin options under *Calibration nights*: the switch port that powers the panel (pick it from the connected switch's ports, or leave empty if the panel is always powered), *Connect flat panel before calibration* (power the port on, connect the panel in NINA with retries for 90 s while it starts, close the cover) and *Disconnect flat panel once closed*. If the cover can't be confirmed closed, the darks don't run: the session container fails with `calibration_cover_failed`. A panel without a motorised cover only gets a warning. Your own cover/park steps in *End* still run afterwards.
+  * The removed containers are kept in memory only. Don't save the sequence as a template while a calibration plan is loaded.
 * **The camera must be covered.** The plugin doesn't close a cover or park the mount; put your own steps before SkyShare Darks.
 * **Frame counts** in the session manifest come from each Take Exposure's own counter, which doesn't reset between rounds, so repeating sets are counted correctly.
 * Dark frames go through NINA's normal file pattern with image type `DARK`. Outside a target, `$$TARGETNAME$$` is empty.

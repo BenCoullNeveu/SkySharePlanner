@@ -120,6 +120,7 @@ class Plan:
     night: str
     targets: list[Target]
     client: str | None = None
+    camera_temperature: float | None = None   # deg C for Set Temperature; None = the instruction's value (0)
     flats: Flats = field(default_factory=Flats)
     darks: Darks = field(default_factory=Darks)
     processing: Processing = field(default_factory=Processing)
@@ -153,6 +154,7 @@ class Plan:
         return Plan(
             schema_version=d.get("schema_version", SCHEMA_VERSION),
             night=d["night"], client=d.get("client"),
+            camera_temperature=d.get("camera_temperature"),
             created_by=d.get("created_by"), created_utc=d.get("created_utc"),
             targets=targets, flats=Flats(**d.get("flats", {})),
             darks=_darks_from_dict(d.get("darks") or {}),
@@ -194,6 +196,8 @@ def validate(plan: Plan, known_filters: Iterable[str] | None = None) -> list[str
         p.append(f"schema_version must be {SCHEMA_VERSION}")
     if not _NIGHT_RE.match(plan.night or ""):
         p.append("night must be YYYY-MM-DD")
+    if plan.camera_temperature is not None and not (-60 <= plan.camera_temperature <= 40):
+        p.append("camera_temperature must be -60 to 40 C")
     else:
         try:
             datetime.strptime(plan.night, "%Y-%m-%d")
@@ -378,6 +382,7 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
     return Plan(
         night=_normalise_date(seq.get("date")),
         client=seq.get("user"),
+        camera_temperature=_float_or_none(seq.get("camera_temperature")),
         targets=targets,
         flats=Flats(count=flats_count),
         darks=_darks_from_dict(seq.get("darks") or {}),
@@ -385,6 +390,10 @@ def plan_from_wizard(seq: dict, *, gain_rule: Callable[[str], int] = default_gai
         created_by=created_by,
         created_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
+
+
+def _float_or_none(v) -> float | None:
+    return None if v is None or v == "" else float(v)
 
 
 def target_name(name: str, client: str | None) -> str:

@@ -35,14 +35,18 @@ namespace SkyShare.Planner {
         private readonly IProfileService profileService;
         private readonly HealthDevices devices;
         private readonly ISequenceMediator sequenceMediator;
+        private readonly ISwitchMediator switchMediator;
 
         [ImportingConstructor]
-        public SkySharePlannerPlugin(IProfileService profileService, ISequenceMediator sequenceMediator,
+        public SkySharePlannerPlugin(IProfileService profileService, ISequenceMediator sequenceMediator, ISwitchMediator switchMediator,
                                      ICameraMediator camera, ITelescopeMediator mount,
                                      IGuiderMediator guider, IFocuserMediator focuser, IFilterWheelMediator filterWheel,
                                      IRotatorMediator rotator) {
             this.profileService = profileService;
             this.sequenceMediator = sequenceMediator;
+            this.switchMediator = switchMediator;
+            RefreshSwitchPortsCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(RefreshSwitchPorts);
+            RefreshSwitchPorts();
             RestartCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(Restart);
             Updates = new UpdateChecker(() => Settings.CheckForUpdates, Update);
             CheckUpdatesCommand = new AsyncRelayCommand(() => Updates.Check(automatic: false));
@@ -58,6 +62,28 @@ namespace SkyShare.Planner {
 
         /// <summary>A newer version installed while NINA runs (waiting in NINA's staging folder): banner on the options page.</summary>
         public PendingUpdate Update { get; } = new();
+
+        // ---- flat panel switch port (calibration nights) ---------------------------------
+
+        private IReadOnlyList<string> switchPorts = Array.Empty<string>();
+        /// <summary>Ports of the connected switch, for the flat panel port list (keeps the saved name if it isn't listed).</summary>
+        public IReadOnlyList<string> SwitchPorts { get => switchPorts; private set { switchPorts = value; Raise(); } }
+
+        private string switchPortsNote = "";
+        public string SwitchPortsNote { get => switchPortsNote; private set { switchPortsNote = value; Raise(); } }
+
+        public IRelayCommand RefreshSwitchPortsCommand { get; }
+
+        private void RefreshSwitchPorts() {
+            try {
+                var ports = FlatPanelPrep.SwitchPorts(switchMediator).ToList();
+                SwitchPortsNote = ports.Count == 0 ? "Connect the switch, then Refresh to list its ports (or type the port name)." : "";
+                ports.Insert(0, "");  // none: the panel is always powered
+                SwitchPorts = ports;
+            } catch (Exception e) {
+                SwitchPortsNote = $"Could not read the switch: {e.Message}";
+            }
+        }
 
         // ---- restart N.I.N.A. (to load a staged update) ---------------------------------
 

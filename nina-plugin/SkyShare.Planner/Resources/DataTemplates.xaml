@@ -80,6 +80,34 @@
         </nina:SequenceBlockView>
     </DataTemplate>
 
+    <!--
+      SkyShareAstro Session is a SequentialContainer, so it uses NINA's own container view;
+      its Mode text shows in the NINA log and Discord rather than in the view.
+    -->
+
+    <DataTemplate DataType="{x:Type local:SetTemperature}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <StackPanel Orientation="Vertical">
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox VerticalAlignment="Center" Content="Use the plan's temperature" IsChecked="{Binding UsePlanTemperature}"
+                                  ToolTip="Use camera_temperature from tonight's plan when it has one; otherwise the fallback." />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Fallback" />
+                        <TextBox MinWidth="40" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding Temperature}"
+                                 ToolTip="Set point when the plan gives none (default 0 °C)." />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="&#176;C" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Min Duration" />
+                        <TextBox MinWidth="30" Margin="6,0,0,0" VerticalAlignment="Center" Text="{Binding RampMinutes}"
+                                 ToolTip="Take at least this long to reach the set point. 0 = straight to the set point." />
+                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="min" />
+                    </StackPanel>
+                    <TextBlock Margin="0,4,0,0" TextWrapping="Wrap" Text="{Binding PlanInfo}" />
+                    <TextBlock Margin="0,4,0,0" Opacity="0.7" TextWrapping="Wrap" Text="{Binding LastResult}" />
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
     <DataTemplate DataType="{x:Type local:SkyShareHealthCheck}">
         <nina:SequenceBlockView>
             <nina:SequenceBlockView.SequenceItemContent>
@@ -244,6 +272,28 @@
                 <TextBlock Style="{StaticResource Lbl}" Text="Wait for the plan to sync" />
                 <TextBox Width="60" VerticalAlignment="Center" Text="{Binding Settings.WaitForPlanMinutes}" />
                 <TextBlock Style="{StaticResource Unit}" Text="min, then fail" />
+            </StackPanel>
+
+            <!-- ===== calibration nights ===== -->
+            <TextBlock Style="{StaticResource Head}" Text="Calibration nights (SkyShareAstro Session)" />
+            <TextBlock Opacity="0.7" Margin="0,0,0,4" TextWrapping="Wrap"
+                       Text="Before the calibration sequence the flat panel is normally off and disconnected. The session container can power it up, connect it, close its cover, then take the darks." />
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Switch port powering the flat panel" />
+                <ComboBox Width="220" IsEditable="True" VerticalAlignment="Center"
+                          ItemsSource="{Binding SwitchPorts}" Text="{Binding Settings.FlatPanelSwitch, UpdateSourceTrigger=LostFocus}"
+                          ToolTip="Leave empty if the panel isn't on a switch port." />
+                <Button Margin="8,0,0,0" Padding="10,2" Command="{Binding RefreshSwitchPortsCommand}" Content="Refresh" />
+                <TextBlock Style="{StaticResource Unit}" Text="{Binding SwitchPortsNote}" />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Connect flat panel before calibration" />
+                <CheckBox VerticalAlignment="Center" IsChecked="{Binding Settings.ConnectFlatPanelForCalibration}"
+                          ToolTip="Power the port on, connect the panel in N.I.N.A. and close its cover before the darks." />
+            </StackPanel>
+            <StackPanel Style="{StaticResource Row}">
+                <TextBlock Style="{StaticResource Lbl}" Text="Disconnect flat panel once closed" />
+                <CheckBox VerticalAlignment="Center" IsChecked="{Binding Settings.DisconnectFlatPanelWhenClosed}" />
             </StackPanel>
 
             <!-- ===== targets ===== -->

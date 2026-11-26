@@ -9,6 +9,8 @@ namespace SkyShare.Planner.Core {
         [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; }
         [JsonPropertyName("night")] public string Night { get; set; } = "";
         [JsonPropertyName("client")] public string? Client { get; set; }
+        /// <summary>Camera set point (°C) for the night, used by SkyShare: Set Temperature. null = the instruction's own value (default 0 °C).</summary>
+        [JsonPropertyName("camera_temperature")] public double? CameraTemperature { get; set; }
         [JsonPropertyName("created_by")] public string? CreatedBy { get; set; }
         [JsonPropertyName("created_utc")] public string? CreatedUtc { get; set; }
         [JsonPropertyName("targets")] public List<PlanTarget> Targets { get; set; } = new();

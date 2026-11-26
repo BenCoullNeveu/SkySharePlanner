@@ -56,6 +56,12 @@ namespace SkyShare.Planner.Sequencer {
             var plan = PlanStore.Require();
             var key = $"{PlanStore.PlanPath}|{PlanStore.LoadedAt:o}";
             if (builtForPlan == key) return;
+            if (PlanStore.DarksInSession) {
+                // Calibration night: SkyShareAstro Session takes the darks.
+                await SequenceTree.OnUiThread(() => SequenceTree.RemoveGenerated(this));
+                builtForPlan = key;
+                return;
+            }
             try {
                 await SequenceTree.OnUiThread(() => {
                     SequenceTree.RemoveGenerated(this);
@@ -78,6 +84,10 @@ namespace SkyShare.Planner.Sequencer {
                 return;
             }
             if (PlanStore.Plan.Darks.Sets.Count == 0) return; // normal imaging night
+            if (PlanStore.DarksInSession) {
+                StatusReporter.Report("darks_skipped", "already taken by SkyShareAstro Session (calibration night)");
+                return;
+            }
 
             await EnsureBuilt();
             StatusReporter.Report("darks_started", DarkPlanner.Describe(PlanStore.Plan.Darks));

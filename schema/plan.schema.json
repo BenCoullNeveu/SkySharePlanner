@@ -26,6 +26,15 @@
       ],
       "maxLength": 64
     },
+    "camera_temperature": {
+      "description": "Camera set point (deg C) for the night, used by SkyShare: Set Temperature. Omit or null = the instruction's own value (default 0).",
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": -60,
+      "maximum": 40
+    },
     "created_by": {
       "description": "discord | dashboard | manual",
       "type": [

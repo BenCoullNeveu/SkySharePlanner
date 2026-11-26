@@ -61,6 +61,9 @@ namespace SkyShare.Planner.Core {
                 Err($"plan is for night {plan.Night} but tonight is {PlanLocator.NightKey(en)}");
 
             if (plan.Targets.Count == 0 && plan.Darks.Sets.Count == 0) Err("plan has no targets or darks");
+            if (plan.CameraTemperature is < -60 or > 40) Err("camera_temperature must be -60 to 40 °C");
+            if (plan.CameraTemperature is { } ct && plan.Darks.Sets.Count > 0 && plan.Darks.Temperature is { } dt && Math.Abs(ct - dt) > 0.5)
+                Warn($"camera_temperature {ct:0.#} °C differs from darks.temperature {dt:0.#} °C: the darks won't match the lights");
             if (plan.Flats.Count is < 1 or > 200) Err("flats.count must be 1-200");
 
             if (plan.Processing.Triage is not (null or "local" or "web" or "send" or "build"))

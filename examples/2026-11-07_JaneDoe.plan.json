@@ -2,6 +2,7 @@
   "schema_version": 1,
   "night": "2026-11-07",
   "client": "Jane Doe",
+  "camera_temperature": -10,
   "created_by": "discord",
   "created_utc": "2026-11-06T19:25:00Z",
   "targets": [

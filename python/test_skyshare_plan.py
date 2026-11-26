@@ -178,3 +178,15 @@ def test_target_name_adds_for_client():
     # idempotent, and the old "<target> <client>" style is converted
     assert sp.target_name("M 31 for Jane Doe", "Jane Doe") == "M 31 for Jane Doe"
     assert sp.target_name("M 31 Jane Doe", "Jane Doe") == "M 31 for Jane Doe"
+
+
+def test_camera_temperature_is_optional_and_validated():
+    plan = sp.plan_from_wizard(BOT_SEQ)
+    assert plan.camera_temperature is None
+    assert "camera_temperature" in plan.to_dict()          # written as null
+    plan = sp.plan_from_wizard({**BOT_SEQ, "camera_temperature": -10})
+    assert plan.camera_temperature == -10
+    assert sp.Plan.from_dict(plan.to_dict()).camera_temperature == -10
+    assert not [e for e in sp.validate(plan) if "camera_temperature" in e]
+    plan.camera_temperature = -80
+    assert any("camera_temperature" in e for e in sp.validate(plan))

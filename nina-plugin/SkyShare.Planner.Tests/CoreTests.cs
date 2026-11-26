@@ -43,6 +43,21 @@ namespace SkyShare.Planner.Tests {
             Assert.That(issues.Where(i => i.Severity == Severity.Error), Is.Empty, string.Join("\n", issues));
         }
 
+        [Test]
+        public void Camera_temperature_is_optional_and_checked() {
+            Assert.That(Example().CameraTemperature, Is.EqualTo(-10));
+            var plan = Example();
+            plan.CameraTemperature = null;
+            Assert.That(PlanValidator.Validate(plan).Where(i => i.Message.Contains("camera_temperature")), Is.Empty);
+            plan.CameraTemperature = -80;
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Severity == Severity.Error && i.Message.Contains("camera_temperature")));
+            // A different darks temperature is only a warning
+            plan.CameraTemperature = -10;
+            plan.Darks.Temperature = -5;
+            plan.Darks.Sets.Add(new DarkSet { Exposure = 300, Count = 5 });
+            Assert.That(PlanValidator.Validate(plan).Any(i => i.Severity == Severity.Warning && i.Message.Contains("darks won't match")));
+        }
+
         private static IEnumerable<string> ExampleFiles() =>
             Directory.GetFiles(Path.Combine(TestContext.CurrentContext.TestDirectory, "examples"), "*.plan.json")
                 .Select(Path.GetFileName).OrderBy(n => n)!;

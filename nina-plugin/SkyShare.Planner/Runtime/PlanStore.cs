@@ -31,6 +31,12 @@ namespace SkyShare.Planner.Runtime {
         public static string? PlanPath { get; private set; }
         public static DateTime LoadedAt { get; private set; }
 
+        /// <summary>A plan with no targets: SkyShareAstro Session runs the calibration sequence instead of its body.</summary>
+        public static bool IsCalibrationNight => Plan is { Targets.Count: 0 };
+
+        /// <summary>SkyShareAstro Session took over tonight's darks, so SkyShare Darks containers skip them.</summary>
+        public static bool DarksInSession { get; set; }
+
         /// <summary>Site settings from "SkyShare: Load Plan", used when generating blocks.</summary>
         public static BuildOptions Options { get; private set; } = new();
 
@@ -40,6 +46,7 @@ namespace SkyShare.Planner.Runtime {
                 PlanPath = path;
                 Options = options;
                 LoadedAt = DateTime.Now;
+                DarksInSession = false;
                 TargetIndexByBlock.Clear();
                 MechanicalByIndex.Clear();
                 FlatItems.Clear();

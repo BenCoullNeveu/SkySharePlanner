@@ -122,6 +122,16 @@ namespace SkyShare.Planner.Sequencer {
             // visible from the start. The flats preview assumes every target runs; the
             // real flats replace it when SkyShare Flats runs, after imaging.
             var root = SequenceTree.Root(this);
+
+            // The session container first: on a calibration night it swaps out When Safe /
+            // When Unsafe (and the SkyShare Targets inside), on an imaging night it puts them back.
+            var sessions = root is null
+                ? new List<SkyShareSession>()
+                : SequenceTree.Descendants<SkyShareSession>(root).ToList();
+            foreach (var session in sessions) await session.EnsureBuilt(); // reports + rethrows on failure
+            if (sessions.Count > 1)
+                StatusReporter.Warn("session_twice", $"{sessions.Count} 'SkyShareAstro Session' containers in this sequence; use one.");
+
             var targetContainers = root is null
                 ? new List<SkyShareTargets>()
                 : SequenceTree.Descendants<SkyShareTargets>(root).ToList();
@@ -133,9 +143,9 @@ namespace SkyShare.Planner.Sequencer {
                 ? new List<SkyShareDarks>()
                 : SequenceTree.Descendants<SkyShareDarks>(root).ToList();
             foreach (var darks in darkContainers) await darks.EnsureBuilt(); // reports + rethrows on failure
-            if (darkContainers.Count == 0 && plan.Darks.Sets.Count > 0)
+            if (darkContainers.Count == 0 && plan.Darks.Sets.Count > 0 && !PlanStore.DarksInSession)
                 StatusReporter.Warn("darks_missing", "the plan has darks but no 'SkyShare Darks' container is in this sequence; no darks will be taken.");
-            if (darkContainers.Count > 1)
+            if (darkContainers.Count > 1 && !PlanStore.DarksInSession)
                 StatusReporter.Warn("darks_twice", $"{darkContainers.Count} 'SkyShare Darks' containers in this sequence; each will take the plan's darks.");
 
             if (root != null)

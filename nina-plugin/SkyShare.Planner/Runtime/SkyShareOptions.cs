@@ -89,6 +89,17 @@ namespace SkyShare.Planner.Runtime {
         public double FrameOverheadSeconds { get => D(5); set => Set(Math.Clamp(value, 0, 120)); }
         public double MeridianFlipMinutes { get => D(5); set => Set(Math.Clamp(value, 0, 60)); }
 
+        // ---- calibration nights (SkyShareAstro Session) --------------------------------
+
+        /// <summary>Name of the switch port that powers the flat panel ("" = no switch: the panel is always powered).</summary>
+        public string FlatPanelSwitch { get => S(""); set => Set((value ?? "").Trim()); }
+
+        /// <summary>Before the calibration sequence: power the panel on, connect it in NINA, and close its cover.</summary>
+        public bool ConnectFlatPanelForCalibration { get => B(true); set => Set(value); }
+
+        /// <summary>Disconnect the panel in NINA once its cover is closed.</summary>
+        public bool DisconnectFlatPanelWhenClosed { get => B(true); set => Set(value); }
+
         // ---- updates ----------------------------------------------------------------
 
         /// <summary>Look for a newer release on GitHub after NINA starts and every 12 hours (never installs by itself).</summary>
